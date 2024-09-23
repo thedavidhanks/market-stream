@@ -8,7 +8,7 @@ load_dotenv()
 API_KEY = os.getenv("ALPACA_API_KEY")
 API_SECRET = os.getenv("ALPACA_API_SECRET")
 
-def live_alpaca_bars(symbol='AAPL'):
+def live_alpaca_bars(symbols='AAPL'):
     
     # Get the OHLCV 1 min bars for the given symbol
     async def bar_data_handler(data):
@@ -16,9 +16,9 @@ def live_alpaca_bars(symbol='AAPL'):
     
     # Subscribe to the live stock data stream
     wss_client = StockDataStream(API_KEY, API_SECRET)
-    wss_client.subscribe_bars(bar_data_handler, symbol)
+    wss_client.subscribe_bars(bar_data_handler, *symbols)
     wss_client.run()
 
 if __name__== "__main__":
 
-    live_alpaca_bars('AAPL')
+    live_alpaca_bars(('AAPL','GE'))
