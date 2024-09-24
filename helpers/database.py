@@ -7,26 +7,33 @@ def connect_to_db(user, password, url, db_name):
 
     return db_connection
 
-def add_bar_to_stock_bars(data_dict, connection):
-    required_keys = ['timestamp', 'symbol', 'open', 'high', 'low', 'close', 'volume', 'trade_count', 'vwap']
+def add_bar_to_stock_bars(data_bar, connection):
+    required_props = ['timestamp', 'symbol', 'open', 'high', 'low', 'close', 'volume', 'trade_count', 'vwap']
     
-    # Check if all required keys are present in the data_dict
-    if not all(key in data_dict for key in required_keys):
-        # find the missing keys
-        missing_keys = list(set(required_keys) - set(data_dict.keys()))
-
-        raise ValueError(f'All required keys are not present in the data_dict. Missing keys: {missing_keys}')
+    # Check if all required properties are present in the data_bar
+    missing_props = [prop for prop in required_props if not hasattr(data_bar, prop)]
+    
+    if missing_props:
+        raise ValueError(f'All required properties are not present in the data_bar. Missing properties: {missing_props}')
     
     # Insert the data into the database
     with connection.cursor() as cursor:
         query = sql.SQL(
-            "INSERT INTO {table} (time, symbol, open, high, low, close, volume, trade_count, vwap) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"
+            "INSERT INTO {table} (time, symbol, open, high, low, close, volume, trade_count, vwap, interval) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
         ).format(
             table=sql.Identifier('stock_bars')
         )
         cursor.execute(
             query,
-            (data_dict['timestamp'], data_dict['symbol'], data_dict['open'], data_dict['high'], data_dict['low'], data_dict['close'], data_dict['volume'], data_dict['trade_count'], data_dict['vwap'])
+            (data_bar.timestamp, data_bar.symbol, data_bar.open, data_bar.high, data_bar.low, data_bar.close, data_bar.volume, data_bar.trade_count, data_bar.vwap, 1)
         )
 
+    connection.commit()
+
+# Connect to the database and refresh the view stock_bars_5min
+def refresh_stock_bars_5min(connection):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "CALL refresh_continuous_aggregate('stock_bars_5min', NULL, NULL)"
+        )
     connection.commit()

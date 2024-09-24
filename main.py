@@ -1,15 +1,17 @@
 import asyncio
 import datetime
+import pytz
 import os
 import re
 from alpaca.data.live import StockDataStream
+from alpaca.data.models.bars import Bar
 from dotenv import load_dotenv
 
 from helpers.database import connect_to_db, add_bar_to_stock_bars
 
 load_dotenv()
 
-# Your Alpaca API key ID and secret
+# Alpaca API key ID and secret
 API_KEY = os.getenv("ALPACA_API_KEY")
 API_SECRET = os.getenv("ALPACA_API_SECRET")
 # Database info
@@ -20,14 +22,19 @@ DB_NAME = os.getenv("DB_NAME")
 
 
 def is_trading_hours():
-    # Check if the current time is within the trading hours
-    import datetime
-    current_time = datetime.datetime.now()
+    # Define the Eastern Standard Time timezone
+    est = pytz.timezone('US/Eastern')
+
+    # Get the current time in UTC
+    utc_time = datetime.datetime.now(datetime.timezone.utc)
+
+    # Convert the UTC time to Eastern Standard Time
+    current_time = utc_time.astimezone(est)
     if current_time.weekday() < 5 and current_time.hour >= 9 and current_time.hour < 16:
         return True
     return  False
 
-def live_alpaca_bars(symbols='AAPL', verbosity=0):
+def live_alpaca_bars(symbols='AAPL', verbosity=0, simulate=False):
     
     # Get the OHLCV 1 min bars for the given symbol
     async def bar_data_handler(data):
@@ -35,9 +42,12 @@ def live_alpaca_bars(symbols='AAPL', verbosity=0):
         add_row_to_db(data)
 
     if not is_trading_hours():
-        print('IDIOT! Not trading hours. Simulating data...')
-        simulate_subscribe_bars(bar_data_handler, *symbols)
-        return
+        print('IDIOT! Not trading hours.')
+        if simulate:
+            print('Simulating data...')
+            simulate_subscribe_bars(bar_data_handler, *symbols)
+        else:
+            print('Guess we\'ll wait...')
     # Subscribe to the live stock data stream
     wss_client = StockDataStream(API_KEY, API_SECRET)
     wss_client.subscribe_bars(bar_data_handler, *symbols)
@@ -46,7 +56,7 @@ def live_alpaca_bars(symbols='AAPL', verbosity=0):
 # Create a function that will replace subscribe_bars during non-trading hours.  
 # It should take the same arguments as subscribe_bars and call the handler every minute with a random string like, symbol='AAPL' timestamp=datetime.datetime(2024, 9, 23, 19, 59, tzinfo=datetime.timezone.utc) open=226.375 high=226.63 low=226.3 close=226.49 volume=15052.0 trade_count=208.0 vwap=226.463702
 def simulate_subscribe_bars(bar_data_handler, *symbols):
-    SLEEP_TIME_SEC = 30
+    SLEEP_TIME_SEC = 60
     # Every minute, call the bar_data_handler with a random string
     import random
     import datetime
@@ -71,16 +81,38 @@ def add_row_to_db(data, verbosity=0):
     # Example data string: "symbol='AAPL' timestamp=datetime.datetime(2024, 9, 23, 19, 59, tzinfo=datetime.timezone.utc) open=226.375 high=226.63 low=226.3 close=226.49 volume=15052.0 trade_count=208.0 vwap=226.463702"
 
     # Convert the string to a dictionary
-    data_dict = bars_string_to_dict(data)
+    if type(data) == str:
+        data_bar = bars_string_to_BarClass(data)
+    elif type(data) == Bar:
+        data_bar = data
+    else:
+        print('Data is not a string or Bar object')
+        print(type(data))
     if verbosity >= 2:
-        print(data_dict)
+        print(data_bar)
 
     # Connect to the database
     db_connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME)
 
     # Insert the data into the database
-    add_bar_to_stock_bars(data_dict, db_connection)
-    
+    add_bar_to_stock_bars(data_bar, db_connection)
+
+def bars_string_to_BarClass(data):
+    # Convert the string to a dictionary
+    result_dict = bars_string_to_dict(data)
+    # Create an instance of the Bar class
+    bar = Bar(
+        t=result_dict['timestamp'],
+        o=result_dict['open'],
+        h=result_dict['high'],
+        l=result_dict['low'],
+        c=result_dict['close'],
+        v=result_dict['volume'],
+        n=result_dict['trade_count'],
+        vw=result_dict['vwap']
+    )
+    return bar
+
 def bars_string_to_dict(data):
 
     # Regular expression to match key-value pairs
