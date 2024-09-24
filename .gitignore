@@ -1,1 +1,2 @@
 .env
+helpers/__pycache__/*.pyc
