@@ -5,7 +5,7 @@ import re
 from alpaca.data.live import StockDataStream
 from dotenv import load_dotenv
 
-from helpers.database import connect_to_db
+from helpers.database import connect_to_db, add_bar_to_stock_bars
 
 load_dotenv()
 
@@ -61,7 +61,7 @@ def simulate_subscribe_bars(bar_data_handler, *symbols):
 
     asyncio.run(simulate())
 
-def add_row_to_db(data):
+def add_row_to_db(data, verbosity=0):
     # Connect to the database.
     # Add the data_dict keys timestamp, symbol, open, high, low, close, volume, trade_count, vwap to the table, stock_bars
     #  as time, symbol, open, high, low, close, volume, trade_count, vwap
@@ -72,19 +72,14 @@ def add_row_to_db(data):
 
     # Convert the string to a dictionary
     data_dict = bars_string_to_dict(data)
-    print(data_dict)
+    if verbosity >= 2:
+        print(data_dict)
 
     # Connect to the database
     db_connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME)
 
     # Insert the data into the database
-    with db_connection.cursor() as cursor:
-        cursor.execute(
-            "INSERT INTO stock_bars (time, symbol, open, high, low, close, volume, trade_count, vwap) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (data_dict['timestamp'], data_dict['symbol'], data_dict['open'], data_dict['high'], data_dict['low'], data_dict['close'], data_dict['volume'], data_dict['trade_count'], data_dict['vwap'])
-        )
-
-    db_connection.commit()
+    add_bar_to_stock_bars(data_dict, db_connection)
     
 def bars_string_to_dict(data):
 
