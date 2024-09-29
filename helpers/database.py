@@ -30,6 +30,29 @@ def add_bar_to_stock_bars(data_bar, connection):
 
     connection.commit()
 
+def add_trade_to_stock_trades(data, connection):
+    required_props = ['symbol', 'timestamp', 'exchange', 'price', 'size', 'id', 'conditions']
+
+    # Check if all required properties are present in the data
+    missing_props = [prop for prop in required_props if not hasattr(data, prop)]
+
+    if missing_props:
+        raise ValueError(f'All required properties are not present in the data. Missing properties: {missing_props}')
+    
+    # Insert the data into the database
+    with connection.cursor() as cursor:
+        query = sql.SQL(
+            "INSERT INTO {table} (symbol, time, exchange, price, size, trade_id, conditions) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+        ).format(
+            table=sql.Identifier('stock_trades_real_time')
+        )
+        cursor.execute(
+            query,
+            (data.symbol, data.timestamp, data.exchange, data.price, data.size, data.id, data.conditions)
+        )
+
+    connection.commit()
+    
 # Connect to the database and refresh the view stock_bars_5min
 def refresh_stock_bars_5min(connection):
     with connection.cursor() as cursor:

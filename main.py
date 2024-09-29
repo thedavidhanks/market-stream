@@ -7,7 +7,7 @@ from alpaca.data.live import StockDataStream
 from alpaca.data.models.bars import Bar
 from dotenv import load_dotenv
 
-from helpers.database import connect_to_db, add_bar_to_stock_bars
+from helpers.database import connect_to_db, add_bar_to_stock_bars, add_trade_to_stock_trades
 
 load_dotenv()
 
@@ -20,6 +20,8 @@ DB_URL = os.getenv("DB_URL")
 DB_USER = os.getenv("DB_USER")
 DB_NAME = os.getenv("DB_NAME")
 
+# ('AAPL','GE','WMT','BA','CSCO','GE','NFLX','MCD')
+STOCKS_TO_TRACK = ('AAPL','GE')
 
 def is_trading_hours():
     # Define the Eastern Standard Time timezone
@@ -34,25 +36,6 @@ def is_trading_hours():
         return True
     return  False
 
-def live_alpaca_bars(symbols='AAPL', verbosity=0, simulate=False):
-    
-    # Get the OHLCV 1 min bars for the given symbol
-    async def bar_data_handler(data):
-        if verbosity >=1: print(data)
-        add_row_to_db(data)
-
-    if not is_trading_hours():
-        print('IDIOT! Not trading hours.')
-        if simulate:
-            print('Simulating data...')
-            simulate_subscribe_bars(bar_data_handler, *symbols)
-        else:
-            print('Guess we\'ll wait...')
-    # Subscribe to the live stock data stream
-    wss_client = StockDataStream(API_KEY, API_SECRET)
-    wss_client.subscribe_bars(bar_data_handler, *symbols)
-    wss_client.run()
-
 # Create a function that will replace subscribe_bars during non-trading hours.  
 # It should take the same arguments as subscribe_bars and call the handler every minute with a random string like, symbol='AAPL' timestamp=datetime.datetime(2024, 9, 23, 19, 59, tzinfo=datetime.timezone.utc) open=226.375 high=226.63 low=226.3 close=226.49 volume=15052.0 trade_count=208.0 vwap=226.463702
 def simulate_subscribe_bars(bar_data_handler, *symbols):
@@ -62,16 +45,19 @@ def simulate_subscribe_bars(bar_data_handler, *symbols):
     import datetime
 
     async def simulate():
-        while True:
+        fake_it = True
+        while fake_it:
             for symbol in symbols:
                 ts_now = repr(datetime.datetime.now(datetime.timezone.utc))
                 data = f"symbol='{symbol}' timestamp={ts_now} open={random.uniform(100, 200):.2f} high={random.uniform(100, 200):.2f} low={random.uniform(100, 200):.2f} close={random.uniform(100, 200):.2f} volume={random.randint(100, 200)} trade_count={random.randint(100, 200)} vwap={random.uniform(100, 200):.2f}"
                 await bar_data_handler(data)
+            if not is_trading_hours():
+                fake_it = False
             await asyncio.sleep(SLEEP_TIME_SEC)
 
     asyncio.run(simulate())
 
-def add_row_to_db(data, verbosity=0):
+def add_bar_row_to_db(data, verbosity=0):
     # Connect to the database.
     # Add the data_dict keys timestamp, symbol, open, high, low, close, volume, trade_count, vwap to the table, stock_bars
     #  as time, symbol, open, high, low, close, volume, trade_count, vwap
@@ -96,6 +82,13 @@ def add_row_to_db(data, verbosity=0):
 
     # Insert the data into the database
     add_bar_to_stock_bars(data_bar, db_connection)
+
+def add_trade_row_to_db(data, verbosity=0):
+    # Connect to the database
+    db_connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME)
+
+    # Insert the data into the database
+    add_trade_to_stock_trades(data, db_connection)
 
 def bars_string_to_BarClass(data):
     # Convert the string to a dictionary
@@ -131,5 +124,32 @@ def bars_string_to_dict(data):
     
     return result_dict
 
+def live_stock_stream(symbols='AAPL', verbosity=0, simulate=False):
+    
+    # Get the OHLCV 1 min bars for the given symbol
+    async def bar_data_handler(data):
+        if verbosity >=1: print(f'BAR_1MIN: {data}')
+        add_bar_row_to_db(data)
+    
+    async def trade_data_handler(data):
+        if verbosity >=1: 
+            print(f'TRADE: {data}')   
+        add_trade_row_to_db(data)     
+
+    if not is_trading_hours():
+        print('IDIOT! Not trading hours.')
+        if simulate:
+            print('Simulating data...')
+            simulate_subscribe_bars(bar_data_handler, *symbols)
+        else:
+            print('Guess we\'ll wait...')
+    # Subscribe to the live stock data stream
+    if verbosity >= 1:
+        print('Subscribing to live data...')
+    wss_client = StockDataStream(API_KEY, API_SECRET)
+    wss_client.subscribe_bars(bar_data_handler, *symbols)
+    wss_client.subscribe_trades(trade_data_handler, *symbols)
+    wss_client.run()
+
 if __name__== "__main__":
-    live_alpaca_bars(('AAPL','GE'), verbosity=1)
+    live_stock_stream(STOCKS_TO_TRACK, verbosity=1)
