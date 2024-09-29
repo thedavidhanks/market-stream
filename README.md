@@ -55,3 +55,7 @@ SELECT add_continuous_aggregate_policy('stock_bars_5min',
     end_offset => INTERVAL '1 minute',
     schedule_interval => INTERVAL '5 minutes');
 ```
+
+# License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
