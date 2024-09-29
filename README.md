@@ -1,12 +1,20 @@
-This project gets 1 min bars from alpaca and writes them to a database.
+This project gets 1 min bars and real-time data from alpaca and writes them to a database.
 
 # Installation
 
-1. Create a postgreSQL database
+1. Start the container.
+This project utilizes Dev Containers extension for Visual Studio Code.  If you're running VS code start up is as follows.
+- Start Docker Desktop
+- In VS Code, install Dev Containers extension
+- Open this project in VS code
+- F1 `Dev Containers: Rebuild Container`
+If you're not running VS code, this project runs Python 3.12.  Python module version can be found in .devcontainer.  
 
-2. Install the TimescaleDB extension
+2. Create a postgreSQL database
 
-3. Create the tables.
+3. Install the TimescaleDB extension
+
+4. Create the tables.
 
 ```
 CREATE TABLE stocks_real_time (
@@ -27,7 +35,7 @@ CREATE TABLE company (
 ```
 
 
-4. Create the view for 5_min bars
+5. Create the view for 5_min bars
 
 A view that groups the 1 min bars as 5 min bars
 ```
@@ -45,8 +53,7 @@ FROM stock_bars
 GROUP BY bucket, symbol;
 ```
 
-5. Create a refresh policy for the view.
-
+6. Create a refresh policy for the view.
 
 A Refresh policy that refreshes the view every 5 min.
 ```
@@ -54,6 +61,17 @@ SELECT add_continuous_aggregate_policy('stock_bars_5min',
     start_offset => INTERVAL '1 day',
     end_offset => INTERVAL '1 minute',
     schedule_interval => INTERVAL '5 minutes');
+```
+
+7. Add a .env file to the root directory with the following constants:
+
+```
+ALPACA_API_KEY = "Your API"
+ALPACA_API_SECRET = "YOUR_API_SECRET"
+DB_PWD = "DATABASE_PASSWORD"
+DB_URL="DATABASE URL"
+DB_USER="DATABASE USER"
+DB_NAME="DATABASE NAME"
 ```
 
 # License
