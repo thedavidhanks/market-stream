@@ -21,20 +21,36 @@ DB_USER = os.getenv("DB_USER")
 DB_NAME = os.getenv("DB_NAME")
 
 # ('AAPL','GE','WMT','BA','CSCO','GE','NFLX','MCD')
-STOCKS_TO_TRACK = ('AAPL','GE')
+STOCKS_TO_TRACK = ('AAPL','GE','WMT','BA','CSCO','NFLX','MCD')
+
+trade_start_hour = 9
+trade_start_min = 00
+trade_end_hour = 16
+# Define the Eastern Standard Time timezone
+est = pytz.timezone('US/Eastern')
 
 def is_trading_hours():
-    # Define the Eastern Standard Time timezone
-    est = pytz.timezone('US/Eastern')
-
-    # Get the current time in UTC
-    utc_time = datetime.datetime.now(datetime.timezone.utc)
 
     # Convert the UTC time to Eastern Standard Time
-    current_time = utc_time.astimezone(est)
-    if current_time.weekday() < 5 and current_time.hour >= 9 and current_time.hour < 16:
+    current_time = datetime.datetime.now(est)
+    cur_hr = current_time.hour
+    cur_min = current_time.minute
+
+    if current_time.weekday() < 5 and (
+        cur_hr> trade_start_hour or  cur_hr == trade_start_hour and cur_min >= trade_start_min
+        ) and cur_hr <= trade_end_hour:
         return True
     return  False
+
+async def close_after_trading_hours(wss_client):
+    while True:
+        current_time = datetime.datetime.now(est)
+        if current_time.weekday() < 5 and current_time.hour < trade_end_hour:
+            await asyncio.sleep(60)  # Check every minute
+        else:
+            print("Trading hours have ended. Closing connection...")
+            await wss_client.close()
+            break
 
 # Create a function that will replace subscribe_bars during non-trading hours.  
 # It should take the same arguments as subscribe_bars and call the handler every minute with a random string like, symbol='AAPL' timestamp=datetime.datetime(2024, 9, 23, 19, 59, tzinfo=datetime.timezone.utc) open=226.375 high=226.63 low=226.3 close=226.49 volume=15052.0 trade_count=208.0 vwap=226.463702
@@ -124,7 +140,7 @@ def bars_string_to_dict(data):
     
     return result_dict
 
-def live_stock_stream(symbols='AAPL', verbosity=0, simulate=False):
+async def live_stock_stream(symbols='AAPL', verbosity=0, simulate=False):
     
     # Get the OHLCV 1 min bars for the given symbol
     async def bar_data_handler(data):
@@ -149,7 +165,27 @@ def live_stock_stream(symbols='AAPL', verbosity=0, simulate=False):
     wss_client = StockDataStream(API_KEY, API_SECRET)
     wss_client.subscribe_bars(bar_data_handler, *symbols)
     wss_client.subscribe_trades(trade_data_handler, *symbols)
-    wss_client.run()
+
+    ## Wait for the trading hours to end, then close the connection  
+    # Run the WebSocket client and trading hours check concurrently
+    await asyncio.gather(
+        asyncio.to_thread(wss_client.run),
+        close_after_trading_hours(wss_client)
+    )
+     
+def main():
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # If no event loop is present, create a new one and run the main function
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(live_stock_stream(STOCKS_TO_TRACK, verbosity=1))
+    
+    if loop.is_running():
+        loop.create_task(live_stock_stream(STOCKS_TO_TRACK, verbosity=1))
+    else:
+        loop.run_until_complete(live_stock_stream(STOCKS_TO_TRACK, verbosity=1))
 
 if __name__== "__main__":
-    live_stock_stream(STOCKS_TO_TRACK, verbosity=1)
+    main()
