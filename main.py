@@ -26,6 +26,7 @@ STOCKS_TO_TRACK = ('AAPL','GE','WMT','BA','CSCO','NFLX','MCD')
 trade_start_hour = 9
 trade_start_min = 00
 trade_end_hour = 16
+trade_end_min = 00
 # Define the Eastern Standard Time timezone
 est = pytz.timezone('US/Eastern')
 
@@ -45,11 +46,12 @@ def is_trading_hours():
 async def close_after_trading_hours(wss_client):
     while True:
         current_time = datetime.datetime.now(est)
-        if current_time.weekday() < 5 and current_time.hour < trade_end_hour:
+        if current_time.weekday() < 5 and current_time.hour < trade_end_hour or (current_time.hour == trade_end_hour and current_time.minute < trade_end_min):
             await asyncio.sleep(60)  # Check every minute
         else:
             print("Trading hours have ended. Closing connection...")
-            await wss_client.close()
+            await wss_client.stop_ws()
+            # await wss_client.close()
             break
 
 # Create a function that will replace subscribe_bars during non-trading hours.  
@@ -180,7 +182,6 @@ def main():
         # If no event loop is present, create a new one and run the main function
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(live_stock_stream(STOCKS_TO_TRACK, verbosity=1))
     
     if loop.is_running():
         loop.create_task(live_stock_stream(STOCKS_TO_TRACK, verbosity=1))
