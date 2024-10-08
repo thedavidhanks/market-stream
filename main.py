@@ -21,7 +21,7 @@ DB_USER = os.getenv("DB_USER")
 DB_NAME = os.getenv("DB_NAME")
 
 # ('AAPL','GE','WMT','BA','CSCO','GE','NFLX','MCD')
-STOCKS_TO_TRACK = ('AAPL','GE','WMT','BA','CSCO','NFLX','MCD')
+STOCKS_TO_TRACK = ('AAPL','GE','WMT','BA','CSCO','NFLX','MCD','MSFT','HD','JPM','TSLA','AMZN')
 
 trade_start_hour = 9
 trade_start_min = 00
@@ -76,14 +76,16 @@ def simulate_subscribe_bars(bar_data_handler, *symbols):
     asyncio.run(simulate())
 
 def add_bar_row_to_db(data, verbosity=0):
-    # Connect to the database.
-    # Add the data_dict keys timestamp, symbol, open, high, low, close, volume, trade_count, vwap to the table, stock_bars
-    #  as time, symbol, open, high, low, close, volume, trade_count, vwap
-    #
-    # Inputs:
-    # data: string - The data string received from the Alpaca API
-    # Example data string: "symbol='AAPL' timestamp=datetime.datetime(2024, 9, 23, 19, 59, tzinfo=datetime.timezone.utc) open=226.375 high=226.63 low=226.3 close=226.49 volume=15052.0 trade_count=208.0 vwap=226.463702"
-
+    """
+    Connect to the database.
+    Add the data_dict keys timestamp, symbol, open, high, low, close, volume, trade_count, vwap to the table, stock_bars
+        as time, symbol, open, high, low, close, volume, trade_count, vwap
+    
+    INPUTS:
+        data: string - The data string received from the Alpaca API
+        Example data string: "symbol='AAPL' timestamp=datetime.datetime(2024, 9, 23, 19, 59, tzinfo=datetime.timezone.utc) open=226.375 high=226.63 low=226.3 close=226.49 volume=15052.0 trade_count=208.0 vwap=226.463702"
+        verbosity: int - The level of verbosity for the function. 0 is no output, 1 is errors and warnings, 2 is informational
+    """
     # Convert the string to a dictionary
     if type(data) == str:
         data_bar = bars_string_to_BarClass(data)
@@ -142,7 +144,14 @@ def bars_string_to_dict(data):
     
     return result_dict
 
-async def live_stock_stream(symbols='AAPL', verbosity=0, simulate=False):
+async def live_stock_stream(symbols, verbosity=0, simulate=False, subscribe_trades=False):
+    """
+    Subscribe to the live stock data stream for the given symbols.
+
+    INPUTS:
+    symbols: tuple - The symbols to subscribe to.
+    verbosity: int - The level of verbosity for the function. 0 is no output, 1 is errors and warnings, 2 is informational, 3+ is debug.
+    """
     
     # Get the OHLCV 1 min bars for the given symbol
     async def bar_data_handler(data):
@@ -155,18 +164,19 @@ async def live_stock_stream(symbols='AAPL', verbosity=0, simulate=False):
         add_trade_row_to_db(data)     
 
     if not is_trading_hours():
-        print('IDIOT! Not trading hours.')
+        print('Currently outside of trading hours.')
         if simulate:
             print('Simulating data...')
             simulate_subscribe_bars(bar_data_handler, *symbols)
         else:
             print('Guess we\'ll wait...')
     # Subscribe to the live stock data stream
-    if verbosity >= 1:
+    if verbosity >= 2:
         print('Subscribing to live data...')
     wss_client = StockDataStream(API_KEY, API_SECRET)
     wss_client.subscribe_bars(bar_data_handler, *symbols)
-    wss_client.subscribe_trades(trade_data_handler, *symbols)
+    if subscribe_trades:
+        wss_client.subscribe_trades(trade_data_handler, *symbols)
 
     ## Wait for the trading hours to end, then close the connection  
     # Run the WebSocket client and trading hours check concurrently
@@ -184,9 +194,9 @@ def main():
         asyncio.set_event_loop(loop)
     
     if loop.is_running():
-        loop.create_task(live_stock_stream(STOCKS_TO_TRACK, verbosity=1))
+        loop.create_task(live_stock_stream(STOCKS_TO_TRACK, verbosity=2))
     else:
-        loop.run_until_complete(live_stock_stream(STOCKS_TO_TRACK, verbosity=1))
+        loop.run_until_complete(live_stock_stream(STOCKS_TO_TRACK, verbosity=2))
 
 if __name__== "__main__":
     main()
