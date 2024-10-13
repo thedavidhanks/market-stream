@@ -1,9 +1,9 @@
 from psycopg import sql, connect
 
-def connect_to_db(user, password, url, db_name):
+def connect_to_db(user, password, url, db_name, port=5434):
     
     # REFERENCE - https://www.psycopg.org/psycopg3/docs/api/connections.html#psycopg.Connection.connect
-    db_connection = connect(host=url, port=5434, dbname=db_name, user=user, password=password)
+    db_connection = connect(host=url, port=port, dbname=db_name, user=user, password=password)
 
     return db_connection
 
@@ -60,3 +60,13 @@ def refresh_stock_bars_5min(connection):
             "CALL refresh_continuous_aggregate('stock_bars_5min', NULL, NULL)"
         )
     connection.commit()
+
+# Connect to the database and print 10 rows from the stock_bars_5min view
+def print_stock_bars_5min(connection):
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT * FROM stock_bars_5min LIMIT 10"
+        )
+        rows = cursor.fetchall()
+        for row in rows:
+            print(row)
