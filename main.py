@@ -19,6 +19,7 @@ DB_PWD = os.getenv("DB_PWD")
 DB_URL = os.getenv("DB_URL")
 DB_USER = os.getenv("DB_USER")
 DB_NAME = os.getenv("DB_NAME")
+DB_PORT = os.getenv("DB_PORT")
 
 # ('AAPL','GE','WMT','BA','CSCO','GE','NFLX','MCD')
 STOCKS_TO_TRACK = ('AAPL','GE','WMT','BA','CSCO','NFLX','MCD','MSFT','HD','JPM','TSLA','AMZN')
@@ -98,14 +99,14 @@ def add_bar_row_to_db(data, verbosity=0):
         print(data_bar)
 
     # Connect to the database
-    db_connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME)
+    db_connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME, port=DB_PORT)
 
     # Insert the data into the database
     add_bar_to_stock_bars(data_bar, db_connection)
 
 def add_trade_row_to_db(data, verbosity=0):
     # Connect to the database
-    db_connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME)
+    db_connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME, port=DB_PORT)
 
     # Insert the data into the database
     add_trade_to_stock_trades(data, db_connection)
