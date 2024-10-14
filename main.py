@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import datetime
 import pytz
@@ -187,6 +188,25 @@ async def live_stock_stream(symbols, verbosity=0, simulate=False, subscribe_trad
     )
      
 def main():
+    # Create an ArgumentParser object
+    parser = argparse.ArgumentParser(description='Capture the market data in a database.')
+    
+    # Add arguments
+    parser.add_argument('-v', '--verbose', help='Increase output verbosity', action='store_true')
+
+    # Parse the arguments
+    args = parser.parse_args()
+
+    if args.verbose:
+        # Print the environment variables
+        print('API_KEY:', API_KEY)
+        print('API_SECRET:', API_SECRET)
+        print('DB_PWD:', DB_PWD)
+        print('DB_URL:', DB_URL)
+        print('DB_USER:', DB_USER)
+        print('DB_NAME:', DB_NAME)
+        print('DB_PORT:', DB_PORT)
+        
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
