@@ -124,4 +124,7 @@ def get_stocks_to_track():
         active_symbols_set = set(result[0] for result in results_list1)
         active_symbols_set.update(result[0] for result in results_list2)
 
+        # sort the set alphabetically
+        active_symbols_set = sorted(active_symbols_set)
+
     return tuple(active_symbols_set)
