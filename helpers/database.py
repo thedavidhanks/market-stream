@@ -2,6 +2,10 @@ import os
 from psycopg import sql, connect
 from dotenv import load_dotenv
 
+from alpaca.data.models.bars import Bar
+
+from helpers.barConversion import bars_string_to_BarClass
+
 load_dotenv()
 
 # Database info
@@ -11,7 +15,7 @@ DB_USER = os.getenv("MS_DB_USER")
 DB_NAME = os.getenv("MS_DB_NAME")
 DB_PORT = os.getenv("MS_DB_PORT")
 
-def connect_to_db(user, password, url, db_name, port=5434):
+def connect_to_db(user=DB_USER, password=DB_PWD, url=DB_URL, db_name=DB_NAME, port=DB_PORT):
     
     # REFERENCE - https://www.psycopg.org/psycopg3/docs/api/connections.html#psycopg.Connection.connect
     db_connection = connect(host=url, port=port, dbname=db_name, user=user, password=password)
@@ -128,3 +132,31 @@ def get_stocks_to_track():
         active_symbols_set = sorted(active_symbols_set)
 
     return tuple(active_symbols_set)
+
+def add_bar_row_to_db(data, verbosity=0):
+    """
+    Connect to the database.
+    Add the data_dict keys timestamp, symbol, open, high, low, close, volume, trade_count, vwap to the table, stock_bars
+        as time, symbol, open, high, low, close, volume, trade_count, vwap
+    
+    INPUTS:
+        data: string - The data string received from the Alpaca API
+        Example data string: "symbol='AAPL' timestamp=datetime.datetime(2024, 9, 23, 19, 59, tzinfo=datetime.timezone.utc) open=226.375 high=226.63 low=226.3 close=226.49 volume=15052.0 trade_count=208.0 vwap=226.463702"
+        verbosity: int - The level of verbosity for the function. 0 is no output, 1 is errors and warnings, 2 is informational
+    """
+    # Convert the string to a dictionary
+    if type(data) == str:
+        data_bar = bars_string_to_BarClass(data)
+    elif type(data) == Bar:
+        data_bar = data
+    else:
+        print('Data is not a string or Bar object')
+        print(type(data))
+    if verbosity >= 2:
+        print(data_bar)
+
+    # Connect to the database
+    db_connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME, port=DB_PORT)
+
+    # Insert the data into the database
+    add_bar_to_stock_bars(data_bar, db_connection)

@@ -3,24 +3,20 @@ import asyncio
 import datetime
 import pytz
 import os
-import re
+
 from alpaca.data.live import StockDataStream
-from alpaca.data.models.bars import Bar
+
 from dotenv import load_dotenv
 
-from helpers.database import connect_to_db, add_bar_to_stock_bars, add_trade_to_stock_trades, get_stocks_to_track
+from helpers.database import connect_to_db, add_bar_row_to_db, add_trade_to_stock_trades, get_stocks_to_track
 
 load_dotenv()
 
 # Alpaca API key ID and secret
 API_KEY = os.getenv("MS_ALPACA_API_KEY")
 API_SECRET = os.getenv("MS_ALPACA_API_SECRET")
-# Database info
-DB_PWD = os.getenv("MS_DB_PWD")
-DB_URL = os.getenv("MS_DB_URL")
-DB_USER = os.getenv("MS_DB_USER")
-DB_NAME = os.getenv("MS_DB_NAME")
-DB_PORT = os.getenv("MS_DB_PORT")
+
+CHECK_FREQUENCY = 300  # 5 minutes
 
 # ('AAPL','GE','WMT','BA','CSCO','GE','NFLX','MCD')
 STOCKS_TO_TRACK = ('AAPL','GE','WMT','BA','CSCO','NFLX','MCD','MSFT','HD','JPM','TSLA','AMZN')
@@ -33,25 +29,22 @@ trade_end_min = 00
 est = pytz.timezone('US/Eastern')
 
 def is_trading_hours():
+    # True if it is a weekday and the current time is between 9:30 AM and 4:00 PM EST
 
     # Convert the UTC time to Eastern Standard Time
     current_time = datetime.datetime.now(est)
-    cur_hr = current_time.hour
-    cur_min = current_time.minute
 
-    if current_time.weekday() < 5 and (
-        cur_hr> trade_start_hour or  cur_hr == trade_start_hour and cur_min >= trade_start_min
-        ) and cur_hr <= trade_end_hour:
+    if current_time.weekday() < 5 and current_time.hour < trade_end_hour or (current_time.hour == trade_end_hour and current_time.minute < trade_end_min):
         return True
     return  False
 
-async def close_after_trading_hours(wss_client):
+async def close_after_trading_hours(wss_client, verbosity=0):
     while True:
-        current_time = datetime.datetime.now(est)
-        if current_time.weekday() < 5 and current_time.hour < trade_end_hour or (current_time.hour == trade_end_hour and current_time.minute < trade_end_min):
+        if is_trading_hours():
             await asyncio.sleep(60)  # Check every minute
         else:
-            print("Trading hours have ended. Closing connection...")
+            if verbosity >= 2:
+                print("Trading hours have ended. Closing connection...")
             await wss_client.stop_ws()
             # await wss_client.close()
             break
@@ -77,74 +70,12 @@ def simulate_subscribe_bars(bar_data_handler, *symbols):
 
     asyncio.run(simulate())
 
-def add_bar_row_to_db(data, verbosity=0):
-    """
-    Connect to the database.
-    Add the data_dict keys timestamp, symbol, open, high, low, close, volume, trade_count, vwap to the table, stock_bars
-        as time, symbol, open, high, low, close, volume, trade_count, vwap
-    
-    INPUTS:
-        data: string - The data string received from the Alpaca API
-        Example data string: "symbol='AAPL' timestamp=datetime.datetime(2024, 9, 23, 19, 59, tzinfo=datetime.timezone.utc) open=226.375 high=226.63 low=226.3 close=226.49 volume=15052.0 trade_count=208.0 vwap=226.463702"
-        verbosity: int - The level of verbosity for the function. 0 is no output, 1 is errors and warnings, 2 is informational
-    """
-    # Convert the string to a dictionary
-    if type(data) == str:
-        data_bar = bars_string_to_BarClass(data)
-    elif type(data) == Bar:
-        data_bar = data
-    else:
-        print('Data is not a string or Bar object')
-        print(type(data))
-    if verbosity >= 2:
-        print(data_bar)
-
+def add_trade_row_to_db(data):
     # Connect to the database
-    db_connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME, port=DB_PORT)
-
-    # Insert the data into the database
-    add_bar_to_stock_bars(data_bar, db_connection)
-
-def add_trade_row_to_db(data, verbosity=0):
-    # Connect to the database
-    db_connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME, port=DB_PORT)
+    db_connection = connect_to_db()
 
     # Insert the data into the database
     add_trade_to_stock_trades(data, db_connection)
-
-def bars_string_to_BarClass(data):
-    # Convert the string to a dictionary
-    result_dict = bars_string_to_dict(data)
-    # Create an instance of the Bar class
-    bar = Bar(
-        t=result_dict['timestamp'],
-        o=result_dict['open'],
-        h=result_dict['high'],
-        l=result_dict['low'],
-        c=result_dict['close'],
-        v=result_dict['volume'],
-        n=result_dict['trade_count'],
-        vw=result_dict['vwap']
-    )
-    return bar
-
-def bars_string_to_dict(data):
-
-    # Regular expression to match key-value pairs
-    pattern = r"(\w+)=('[^']*'|datetime\.datetime\([^\)]*\)|[^ ]+)"
-
-    # Find all matches
-    matches = re.findall(pattern, data)
-
-    # Convert matches to dictionary
-    result_dict = {}
-    for key, value in matches:
-        if key == 'timestamp':
-            # Evaluate the timestamp string to convert it to a datetime object
-            value = eval(value)
-        result_dict[key] = value
-    
-    return result_dict
 
 async def live_stock_stream(symbols, verbosity=0, simulate=False, subscribe_trades=False):
     """
@@ -186,31 +117,118 @@ async def live_stock_stream(symbols, verbosity=0, simulate=False, subscribe_trad
         asyncio.to_thread(wss_client.run),
         close_after_trading_hours(wss_client)
     )
-     
+
+def run_wss_client(wss_client, verbosity=1):
+    try:
+        wss_client.run()
+    except ValueError as e:
+        if "connection limit exceeded" in str(e):
+            if verbosity >= 1:
+                print(f"ValueError (connection limit) running wss_client: {e}")
+            os._exit(1)
+        else:
+            if verbosity >= 1:
+                print(f"ValueError running wss_client: {e}")
+            raise
+    except Exception as e:
+        print(f"Error running wss_client: {e}")
+        os._exit(1)
+
+# Get the OHLCV 1 min bars for the given symbol
+async def bar_data_handler(data):
+    print(f'BAR_1MIN: {data}')
+    add_bar_row_to_db(data)
+
+def start_sub(stocks_to_track=None, verbosity=0):
+    """
+    Start the WebSocket client and subscribe to the bars for the symbols to track.
+
+    Alpaca provides sandbox urls for testing, but does not explain how to connect to them.
+    stock_url = "wss://stream.data.sandbox.alpaca.markets/v2/iex"
+    crypto_url = "wss://stream.data.sandbox.alpaca.markets/v1beta3/crypto/us"
+    """
+    symbols = get_stocks_to_track() if stocks_to_track is None else stocks_to_track
+    
+    try:
+        wss_client = StockDataStream(API_KEY, API_SECRET)
+    except Exception as e:
+        if verbosity >=1: print(f"Failed to connect to the data stream: {e}")
+        exit(1)
+    
+    wss_client.subscribe_bars(bar_data_handler, *symbols)
+    return wss_client
+
+def update_sub(client, new_symbols, old_symbols):
+    client.unsubscribe_bars(*old_symbols)
+    client.subscribe_bars(bar_data_handler, *new_symbols)
+
+async def update_symbols(wss_client, stocks_to_track=(), verbosity=1):
+    current_stocks_to_track = stocks_to_track
+
+    while True:
+        if is_trading_hours():
+            if verbosity >=2:
+                print(f'update_symbols: sleeping for {CHECK_FREQUENCY} secs...')
+            await asyncio.sleep(CHECK_FREQUENCY)  # Sleep for 5 minutes
+            new_stocks_to_track = get_stocks_to_track()
+            if sorted(current_stocks_to_track) != sorted(new_stocks_to_track):
+                if verbosity >=2:
+                    print(f'update_symbols: Updating stocks to track...now tracking {new_stocks_to_track}')
+                old_stocks = set(current_stocks_to_track)
+                update_sub(wss_client, new_stocks_to_track, old_stocks)
+                current_stocks_to_track = new_stocks_to_track
+            else:
+                if verbosity >=2:
+                    print('update_symbols: No changes to stocks to track')
+        else:
+            if verbosity >=2:
+                print('update_symbols: Currently outside of trading hours. Exiting...')
+            break
+
+async def sub_bars(verbosity=0):
+    """
+    start 3 tasks:
+    - run_wss_client: starts a client that is connected to alpaca's websocket
+    - update_symbols: updates the symbols to track at a specified interval.
+    - close_after_trading_hours: closes the connection after trading hours.
+    """
+    symbols = get_stocks_to_track()
+    wss_client = start_sub(stocks_to_track=symbols, verbosity=verbosity)
+
+    try:
+        await asyncio.gather(
+            asyncio.to_thread(run_wss_client, wss_client, verbosity=verbosity),
+            update_symbols(wss_client, stocks_to_track=symbols, verbosity=verbosity),
+            close_after_trading_hours(wss_client, verbosity=verbosity)
+        )
+    except asyncio.CancelledError:
+        print("Subscription interrupted")
+    except ValueError as e:
+        if "connection limit exceeded" in str(e):
+            print(f"Error in sub_bars: {e}")
+            os._exit(1)
+        else:
+            raise
+    except Exception as e:
+        print(f"Error in sub_bars: {e}")
+        os._exit(1)
+    finally:
+        wss_client.stop()
+
 def main():
     # Create an ArgumentParser object
     parser = argparse.ArgumentParser(description='Capture the market data in a database.')
     
     # Add arguments
-    parser.add_argument('-v', '--verbose', help='Increase output verbosity', action='store_true')
+    parser.add_argument('-v', '--verbosity', help='Set output verbosity level. 0 None, 1 Errors, 2 Info, 3 Debug', type=int, default=0)
 
     # Parse the arguments
     args = parser.parse_args()
-        
+
     try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        # If no event loop is present, create a new one and run the main function
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    stocks_db = get_stocks_to_track()
-    stocks_to_track = stocks_db if len(stocks_db) > 0 else STOCKS_TO_TRACK
-    
-    if loop.is_running():
-        loop.create_task(live_stock_stream(stocks_to_track, verbosity=2))
-    else:
-        loop.run_until_complete(live_stock_stream(stocks_to_track, verbosity=2))
+        asyncio.run(sub_bars(verbosity=args.verbosity))
+    except KeyboardInterrupt:
+        print("Program interrupted")
 
 if __name__== "__main__":
     main()
