@@ -1,4 +1,15 @@
+import os
 from psycopg import sql, connect
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Database info
+DB_PWD = os.getenv("MS_DB_PWD")
+DB_URL = os.getenv("MS_DB_URL")
+DB_USER = os.getenv("MS_DB_USER")
+DB_NAME = os.getenv("MS_DB_NAME")
+DB_PORT = os.getenv("MS_DB_PORT")
 
 def connect_to_db(user, password, url, db_name, port=5434):
     
@@ -70,3 +81,47 @@ def print_stock_bars_5min(connection):
         rows = cursor.fetchall()
         for row in rows:
             print(row)
+
+def get_stocks_to_track():
+    """
+    Returns a list of symbols of the stocks to track
+    
+    active_symbols_set is a set of symbols that include all of the following:
+    - those that are in the stock_targets table where the weight is greater than 0 and they portfolio_id is active.
+    - those are are in orders table where the status is open.
+    - those that have qty greater than 0 in the orders table for the portfolio_id that is active.
+    TODO: Only the top condition is implemented for now.  Add in the other conditions.
+    """
+
+    with connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME, port=DB_PORT) as connection:
+        # Query the DB for the active portfolios and get the symbols that are in the stock_targets table.
+        query1 = """
+        SELECT DISTINCT
+            st.symbol
+        FROM 
+            public.portfolio_configs pc
+        JOIN 
+            public.stock_targets st
+        ON 
+            pc.id = st.portfolio_id
+        WHERE 
+            pc.active = TRUE
+            AND st.weight > 0;
+        """
+        results_list1 = connection.execute(query1).fetchall()
+
+        # Query the DB for stocks that have not been sold.
+        query2 = """
+        SELECT symbol
+        FROM public.orders
+        GROUP BY symbol
+        HAVING SUM(CASE WHEN side = 'buy' THEN qty::numeric ELSE 0 END) - 
+               SUM(CASE WHEN side = 'sell' THEN qty::numeric ELSE 0 END) > 0;
+        """
+        results_list2 = connection.execute(query2).fetchall()
+
+        # Use a set to avoid duplicates
+        active_symbols_set = set(result[0] for result in results_list1)
+        active_symbols_set.update(result[0] for result in results_list2)
+
+    return tuple(active_symbols_set)

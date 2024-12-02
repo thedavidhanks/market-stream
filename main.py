@@ -8,7 +8,7 @@ from alpaca.data.live import StockDataStream
 from alpaca.data.models.bars import Bar
 from dotenv import load_dotenv
 
-from helpers.database import connect_to_db, add_bar_to_stock_bars, add_trade_to_stock_trades
+from helpers.database import connect_to_db, add_bar_to_stock_bars, add_trade_to_stock_trades, get_stocks_to_track
 
 load_dotenv()
 
@@ -196,16 +196,6 @@ def main():
 
     # Parse the arguments
     args = parser.parse_args()
-
-    if args.verbose:
-        # Print the environment variables
-        print('API_KEY:', API_KEY)
-        print('API_SECRET:', API_SECRET)
-        print('DB_PWD:', DB_PWD)
-        print('DB_URL:', DB_URL)
-        print('DB_USER:', DB_USER)
-        print('DB_NAME:', DB_NAME)
-        print('DB_PORT:', DB_PORT)
         
     try:
         loop = asyncio.get_running_loop()
@@ -214,10 +204,13 @@ def main():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
     
+    stocks_db = get_stocks_to_track()
+    stocks_to_track = stocks_db if len(stocks_db) > 0 else STOCKS_TO_TRACK
+    
     if loop.is_running():
-        loop.create_task(live_stock_stream(STOCKS_TO_TRACK, verbosity=2))
+        loop.create_task(live_stock_stream(stocks_to_track, verbosity=2))
     else:
-        loop.run_until_complete(live_stock_stream(STOCKS_TO_TRACK, verbosity=2))
+        loop.run_until_complete(live_stock_stream(stocks_to_track, verbosity=2))
 
 if __name__== "__main__":
     main()
