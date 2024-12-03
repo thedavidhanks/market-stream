@@ -30,8 +30,10 @@ def is_trading_hours():
 
     # Convert the UTC time to Eastern Standard Time
     current_time = datetime.datetime.now(est)
+    start_time = current_time.replace(hour=trade_start_hour, minute=trade_start_min, second=0, microsecond=0)
+    end_time = current_time.replace(hour=trade_end_hour, minute=trade_end_min, second=0, microsecond=0)
 
-    if current_time.weekday() < 5 and current_time.hour < trade_end_hour or (current_time.hour == trade_end_hour and current_time.minute < trade_end_min):
+    if current_time.weekday() < 5 and start_time <= current_time <= end_time:
         return True
     return  False
 
