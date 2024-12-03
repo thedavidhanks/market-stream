@@ -18,9 +18,6 @@ API_SECRET = os.getenv("MS_ALPACA_API_SECRET")
 
 CHECK_FREQUENCY = 300  # 5 minutes
 
-# ('AAPL','GE','WMT','BA','CSCO','GE','NFLX','MCD')
-STOCKS_TO_TRACK = ('AAPL','GE','WMT','BA','CSCO','NFLX','MCD','MSFT','HD','JPM','TSLA','AMZN')
-
 trade_start_hour = 9
 trade_start_min = 00
 trade_end_hour = 16
