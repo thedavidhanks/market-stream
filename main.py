@@ -38,6 +38,9 @@ def is_trading_hours():
     return  False
 
 async def close_after_trading_hours(wss_client, verbosity=0):
+    # sleep for 5 seconds to allow the client to start
+    await asyncio.sleep(5)
+
     while True:
         if is_trading_hours():
             await asyncio.sleep(60)  # Check every minute
@@ -45,7 +48,6 @@ async def close_after_trading_hours(wss_client, verbosity=0):
             if verbosity >= 2:
                 print("Trading hours have ended. Closing connection...")
             await wss_client.stop_ws()
-            # await wss_client.close()
             break
 
 # Create a function that will replace subscribe_bars during non-trading hours.  
