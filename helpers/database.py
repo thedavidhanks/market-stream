@@ -150,8 +150,8 @@ def add_bar_row_to_db(data, verbosity=0):
     elif type(data) == Bar:
         data_bar = data
     else:
-        print('Data is not a string or Bar object')
-        print(type(data))
+        if verbosity >= 1:
+            print(f'Data is not a string or Bar object as expected.  Data type: {type(data)}')
     if verbosity >= 2:
         print(data_bar)
 
@@ -160,3 +160,49 @@ def add_bar_row_to_db(data, verbosity=0):
 
     # Insert the data into the database
     add_bar_to_stock_bars(data_bar, db_connection)
+
+def update_bar_row_in_db(data: Bar):
+    """
+    Connects to the database and if the data with the symbol and timestamp is found, updates the row.
+    If the data is not found, adds the data to the database.
+
+    INPUTS:
+        data: Bar - The data to add or update in the database
+    """
+
+    # Connect to the database
+    db_connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME, port=DB_PORT)
+
+    try:
+        # Check if the data is in the database
+        with db_connection.cursor() as cursor:
+            query = sql.SQL(
+                "SELECT * FROM {table} WHERE time = %s AND symbol = %s AND interval = %s"
+            ).format(
+                table=sql.Identifier('stock_bars')
+            )
+            cursor.execute(
+                query,
+                (data.timestamp, data.symbol, 1)
+            )
+            row = cursor.fetchone()
+
+        # If the data is found, update the row
+        if row:
+            with db_connection.cursor() as cursor:
+                query = sql.SQL(
+                    "UPDATE {table} SET open = %s, high = %s, low = %s, close = %s, volume = %s, trade_count = %s, vwap = %s WHERE time = %s AND symbol = %s AND interval = %s"
+                ).format(
+                    table=sql.Identifier('stock_bars')
+                )
+                cursor.execute(
+                    query,
+                    (data.open, data.high, data.low, data.close, data.volume, data.trade_count, data.vwap, data.timestamp, data.symbol, 1)
+                )
+            db_connection.commit()
+        # If the data is not found, add the data to the database
+        else:
+            add_bar_to_stock_bars(data, db_connection)
+    finally:
+        # Ensure the connection is closed
+        db_connection.close()

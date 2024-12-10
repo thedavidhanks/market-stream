@@ -8,7 +8,8 @@ from alpaca.data.live import StockDataStream
 
 from dotenv import load_dotenv
 
-from helpers.database import connect_to_db, add_bar_row_to_db, add_trade_to_stock_trades, get_stocks_to_track
+from helpers.database import connect_to_db, add_bar_row_to_db, add_trade_to_stock_trades, get_stocks_to_track, update_bar_row_in_db
+from helpers.stringHelper import bar_to_oneline_string
 
 load_dotenv()
 
@@ -86,12 +87,7 @@ async def live_stock_stream(symbols, verbosity=0, simulate=False, subscribe_trad
     symbols: tuple - The symbols to subscribe to.
     verbosity: int - The level of verbosity for the function. 0 is no output, 1 is errors and warnings, 2 is informational, 3+ is debug.
     """
-    
-    # Get the OHLCV 1 min bars for the given symbol
-    async def bar_data_handler(data):
-        if verbosity >=1: print(f'BAR_1MIN: {data}')
-        add_bar_row_to_db(data)
-    
+        
     async def trade_data_handler(data):
         if verbosity >=1: 
             print(f'TRADE: {data}')   
@@ -109,6 +105,7 @@ async def live_stock_stream(symbols, verbosity=0, simulate=False, subscribe_trad
         print('Subscribing to live data...')
     wss_client = StockDataStream(API_KEY, API_SECRET)
     wss_client.subscribe_bars(bar_data_handler, *symbols)
+    wss_client.subscribe_updated_bars(updatebar_data_handler, *symbols)
     if subscribe_trades:
         wss_client.subscribe_trades(trade_data_handler, *symbols)
 
@@ -137,8 +134,12 @@ def run_wss_client(wss_client, verbosity=1):
 
 # Get the OHLCV 1 min bars for the given symbol
 async def bar_data_handler(data):
-    print(f'BAR_1MIN: {data}')
+    print(f'BAR_1MIN: {bar_to_oneline_string(data)}')
     add_bar_row_to_db(data)
+
+async def updatebar_data_handler(data):
+    print(f'UPDATE_BAR: {bar_to_oneline_string(data)}')
+    update_bar_row_in_db(data)
 
 def start_sub(stocks_to_track=None, verbosity=0):
     """
@@ -157,11 +158,17 @@ def start_sub(stocks_to_track=None, verbosity=0):
         exit(1)
     
     wss_client.subscribe_bars(bar_data_handler, *symbols)
+    wss_client.subscribe_updated_bars(updatebar_data_handler, *symbols)
     return wss_client
 
 def update_sub(client, new_symbols, old_symbols):
+    # update the subscriptions to the new symbols
     client.unsubscribe_bars(*old_symbols)
     client.subscribe_bars(bar_data_handler, *new_symbols)
+
+    # update the corrected subscriptions to the new symbols
+    client.unsubscribe_updated_bars(*old_symbols)
+    client.subscribe_updated_bars(updatebar_data_handler, *new_symbols)
 
 async def update_symbols(wss_client, stocks_to_track=(), verbosity=1):
     current_stocks_to_track = stocks_to_track
