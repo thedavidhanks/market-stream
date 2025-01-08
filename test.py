@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from helpers.database import connect_to_db, print_stock_bars_5min
+from helpers.database import connect_to_db, print_stock_bars_5min, get_crypto_to_track
 
 load_dotenv()
 
@@ -14,6 +14,14 @@ DB_USER = os.getenv("MS_DB_USER")
 DB_NAME = os.getenv("MS_DB_NAME")
 DB_PORT = os.getenv("MS_DB_PORT")
 
-connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME, port=DB_PORT)
 
-print_stock_bars_5min(connection)
+
+if __name__ == '__main__':
+
+    # connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME, DB_PORT)
+    # print_stock_bars_5min(connection)
+    # connection.close()
+
+    sym = get_crypto_to_track()
+    print(sym)
+    

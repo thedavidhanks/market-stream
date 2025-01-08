@@ -15,25 +15,7 @@ If you're not running VS code, this project runs Python 3.12.  Python module ver
 3. Install the TimescaleDB extension
 
 4. Create the tables.
-
-```
-CREATE TABLE stocks_real_time (
-  time TIMESTAMPTZ NOT NULL,
-  symbol TEXT NOT NULL,
-  price DOUBLE PRECISION NULL,
-  day_volume INT NULL
-);
-
-SELECT create_hypertable('stocks_real_time', by_range('time'));
-
-CREATE INDEX ix_symbol_time ON stocks_real_time (symbol, time DESC);
-
-CREATE TABLE company (
-  symbol TEXT NOT NULL,
-  name TEXT NOT NULL
-);
-```
-
+   SEE data/db_create.sql
 
 5. Create the view for 5_min bars
 

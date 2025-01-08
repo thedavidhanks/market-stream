@@ -110,6 +110,7 @@ def get_stocks_to_track():
             pc.id = st.portfolio_id
         WHERE 
             pc.active = TRUE
+            AND st.type = 'stock'
             AND st.weight > 0;
         """
         results_list1 = connection.execute(query1).fetchall()
@@ -118,6 +119,55 @@ def get_stocks_to_track():
         query2 = """
         SELECT symbol
         FROM public.orders
+        WHERE asset_class = 'us_equity'
+        GROUP BY symbol
+        HAVING SUM(CASE WHEN side = 'buy' THEN qty::numeric ELSE 0 END) - 
+               SUM(CASE WHEN side = 'sell' THEN qty::numeric ELSE 0 END) > 0;
+        """
+        results_list2 = connection.execute(query2).fetchall()
+
+        # Use a set to avoid duplicates
+        active_symbols_set = set(result[0] for result in results_list1)
+        active_symbols_set.update(result[0] for result in results_list2)
+
+        # sort the set alphabetically
+        active_symbols_set = sorted(active_symbols_set)
+
+    return tuple(active_symbols_set)
+
+def get_crypto_to_track():
+    """
+    Returns a list of symbols of the crypto to track
+    
+    active_symbols_set is a set of symbols that include all of the following:
+    - those that are in the stock_targets table where the weight is greater than 0, type is 'crypto', and they portfolio_id is active.
+    - those are are in orders table where the status is open.
+    - those that have qty greater than 0 in the orders table for the portfolio_id that is active.
+    """
+    
+    with connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME, port=DB_PORT) as connection:
+        # Query the DB for the active portfolios and get the symbols that are in the stock_targets table.
+        query1 = """
+        SELECT DISTINCT
+            st.symbol
+        FROM 
+            public.portfolio_configs pc
+        JOIN 
+            public.stock_targets st
+        ON 
+            pc.id = st.portfolio_id
+        WHERE 
+            pc.active = TRUE
+            AND st.type = 'crypto'
+            AND st.weight > 0;
+        """
+        results_list1 = connection.execute(query1).fetchall()
+
+        # Query the DB for stocks that have not been sold.
+        query2 = """
+        SELECT symbol
+        FROM public.orders
+        WHERE asset_class = 'crypto'
         GROUP BY symbol
         HAVING SUM(CASE WHEN side = 'buy' THEN qty::numeric ELSE 0 END) - 
                SUM(CASE WHEN side = 'sell' THEN qty::numeric ELSE 0 END) > 0;

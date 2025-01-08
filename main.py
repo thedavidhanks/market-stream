@@ -4,11 +4,11 @@ import datetime
 import pytz
 import os
 
-from alpaca.data.live import StockDataStream
+from alpaca.data.live import StockDataStream, CryptoDataStream
 
 from dotenv import load_dotenv
 
-from helpers.database import connect_to_db, add_bar_row_to_db, add_trade_to_stock_trades, get_stocks_to_track, update_bar_row_in_db
+from helpers.database import connect_to_db, add_bar_row_to_db, add_trade_to_stock_trades, get_stocks_to_track, update_bar_row_in_db, get_crypto_to_track
 from helpers.stringHelper import bar_to_oneline_string
 
 load_dotenv()
@@ -79,6 +79,8 @@ def add_trade_row_to_db(data):
     # Insert the data into the database
     add_trade_to_stock_trades(data, db_connection)
 
+    db_connection.close()
+
 async def live_stock_stream(symbols, verbosity=0, simulate=False, subscribe_trades=False):
     """
     Subscribe to the live stock data stream for the given symbols.
@@ -141,7 +143,7 @@ async def updatebar_data_handler(data):
     print(f'UPDATE_BAR: {bar_to_oneline_string(data)}')
     update_bar_row_in_db(data)
 
-def start_sub(stocks_to_track=None, verbosity=0):
+def start_sub(stocks_to_track=None, asset='stock', verbosity=0):
     """
     Start the WebSocket client and subscribe to the bars for the symbols to track.
 
@@ -152,7 +154,10 @@ def start_sub(stocks_to_track=None, verbosity=0):
     symbols = get_stocks_to_track() if stocks_to_track is None else stocks_to_track
     
     try:
-        wss_client = StockDataStream(API_KEY, API_SECRET)
+        if asset == 'stock':
+            wss_client = StockDataStream(API_KEY, API_SECRET)
+        elif asset == 'crypto':
+            wss_client = CryptoDataStream(API_KEY, API_SECRET)
     except Exception as e:
         if verbosity >=1: print(f"Failed to connect to the data stream: {e}")
         exit(1)
@@ -170,8 +175,8 @@ def update_sub(client, new_symbols, old_symbols):
     client.unsubscribe_updated_bars(*old_symbols)
     client.subscribe_updated_bars(updatebar_data_handler, *new_symbols)
 
-async def update_symbols(wss_client, stocks_to_track=(), verbosity=1):
-    current_stocks_to_track = stocks_to_track
+async def update_symbols(wss_client, symbols_to_track=(), verbosity=1):
+    current_stocks_to_track = symbols_to_track
 
     while True:
         if is_trading_hours():
@@ -193,6 +198,24 @@ async def update_symbols(wss_client, stocks_to_track=(), verbosity=1):
                 print('update_symbols: Currently outside of trading hours. Exiting...')
             break
 
+async def update_crypto_symbols(wss_client, symbols_to_track=(), verbosity=1):
+    current_crypto_to_track = symbols_to_track
+
+    while True:
+        if verbosity >=2:
+            print(f'update_crypto_symbols: sleeping for {CHECK_FREQUENCY} secs...')
+        await asyncio.sleep(CHECK_FREQUENCY)  # Sleep for 5 minutes
+        new_crypto_to_track = get_crypto_to_track()
+        if sorted(current_crypto_to_track) != sorted(new_crypto_to_track):
+            if verbosity >=2:
+                print(f'update_crypto_symbols: Updating crypto to track...now tracking {new_crypto_to_track}')
+            old_crypto = set(current_crypto_to_track)
+            update_sub(wss_client, new_crypto_to_track, old_crypto)
+            current_crypto_to_track = new_crypto_to_track
+        else:
+            if verbosity >=2:
+                print('update_crypto_symbols: No changes to crypto to track')
+
 async def sub_bars(verbosity=0):
     """
     start 3 tasks:
@@ -200,14 +223,25 @@ async def sub_bars(verbosity=0):
     - update_symbols: updates the symbols to track at a specified interval.
     - close_after_trading_hours: closes the connection after trading hours.
     """
-    symbols = get_stocks_to_track()
-    wss_client = start_sub(stocks_to_track=symbols, verbosity=verbosity)
+    stock_symbols = get_stocks_to_track()
+    crypto_symbols = get_crypto_to_track()
+    
+    # A stock data stream client
+    wss_stock_client = start_sub(stocks_to_track=stock_symbols, asset='stock', verbosity=verbosity)
+
+    # A crypto data stream client
+    wss_crypto_client = start_sub(stocks_to_track=crypto_symbols, asset='crypto', verbosity=verbosity)
 
     try:
         await asyncio.gather(
-            asyncio.to_thread(run_wss_client, wss_client, verbosity=verbosity),
-            update_symbols(wss_client, stocks_to_track=symbols, verbosity=verbosity),
-            close_after_trading_hours(wss_client, verbosity=verbosity)
+            # thread for tracking stock data
+            asyncio.to_thread(run_wss_client, wss_stock_client, verbosity=verbosity),
+            update_symbols(wss_stock_client, symbols_to_track=stock_symbols, verbosity=verbosity),
+            close_after_trading_hours(wss_stock_client, verbosity=verbosity),
+
+            # thread for tracking crypto data
+            asyncio.to_thread(run_wss_client, wss_crypto_client, verbosity=verbosity),
+            update_crypto_symbols(wss_crypto_client, symbols_to_track=crypto_symbols, verbosity=verbosity)
         )
     except asyncio.CancelledError:
         print("Subscription interrupted")
@@ -221,7 +255,8 @@ async def sub_bars(verbosity=0):
         print(f"Error in sub_bars: {e}")
         os._exit(1)
     finally:
-        wss_client.stop()
+        wss_stock_client.stop()
+        wss_crypto_client.stop()
 
 def main():
     # Create an ArgumentParser object
