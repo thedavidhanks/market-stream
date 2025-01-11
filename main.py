@@ -5,6 +5,7 @@ import pytz
 import os
 
 from alpaca.data.live import StockDataStream, CryptoDataStream
+from alpaca.data.live.websocket import DataStream
 
 from dotenv import load_dotenv
 
@@ -18,12 +19,15 @@ API_KEY = os.getenv("MS_ALPACA_API_KEY")
 API_SECRET = os.getenv("MS_ALPACA_API_SECRET")
 
 CHECK_FREQUENCY = 300  # 5 minutes
+TESTING = False
 
-trade_start_hour = 9
+# Alpaca supports extended trading hours from 4:00 AM to 8:00 PM EST
+# https://docs.alpaca.markets/docs/orders-at-alpaca#orders-submitted-outside-of-eligible-trading-hours
+# Define the trading hours
+trade_start_hour = 4
 trade_start_min = 00
-trade_end_hour = 16
+trade_end_hour = 20
 trade_end_min = 00
-# Define the Eastern Standard Time timezone
 est = pytz.timezone('US/Eastern')
 
 def is_trading_hours():
@@ -34,6 +38,7 @@ def is_trading_hours():
     start_time = current_time.replace(hour=trade_start_hour, minute=trade_start_min, second=0, microsecond=0)
     end_time = current_time.replace(hour=trade_end_hour, minute=trade_end_min, second=0, microsecond=0)
 
+    # It is a weekday and the current time is between 9:30 AM and 4:00 PM EST
     if current_time.weekday() < 5 and start_time <= current_time <= end_time:
         return True
     return  False
@@ -96,12 +101,15 @@ async def live_stock_stream(symbols, verbosity=0, simulate=False, subscribe_trad
         add_trade_row_to_db(data)     
 
     if not is_trading_hours():
-        print('Currently outside of trading hours.')
+        if verbosity >= 2:
+            print('live_stock_stream: Currently outside of trading hours.')
         if simulate:
-            print('Simulating data...')
+            if verbosity >= 2:
+                print('Simulating data...')
             simulate_subscribe_bars(bar_data_handler, *symbols)
         else:
-            print('Guess we\'ll wait...')
+            if verbosity >= 2:
+                print('Guess we\'ll wait...')
     # Subscribe to the live stock data stream
     if verbosity >= 2:
         print('Subscribing to live data...')
@@ -148,16 +156,16 @@ def start_sub(stocks_to_track=None, asset='stock', verbosity=0):
     Start the WebSocket client and subscribe to the bars for the symbols to track.
 
     Alpaca provides sandbox urls for testing, but does not explain how to connect to them.
-    stock_url = "wss://stream.data.sandbox.alpaca.markets/v2/iex"
-    crypto_url = "wss://stream.data.sandbox.alpaca.markets/v1beta3/crypto/us"
     """
+    stock_url = "wss://stream.data.sandbox.alpaca.markets/v2/iex" if TESTING else None
+    crypto_url = "wss://stream.data.sandbox.alpaca.markets/v1beta3/crypto/us" if TESTING else None
     symbols = get_stocks_to_track() if stocks_to_track is None else stocks_to_track
     
     try:
         if asset == 'stock':
-            wss_client = StockDataStream(API_KEY, API_SECRET)
+            wss_client = StockDataStream(API_KEY, API_SECRET, url_override=stock_url)
         elif asset == 'crypto':
-            wss_client = CryptoDataStream(API_KEY, API_SECRET)
+            wss_client = CryptoDataStream(API_KEY, API_SECRET, url_override=crypto_url)
     except Exception as e:
         if verbosity >=1: print(f"Failed to connect to the data stream: {e}")
         exit(1)
@@ -179,24 +187,22 @@ async def update_symbols(wss_client, symbols_to_track=(), verbosity=1):
     current_stocks_to_track = symbols_to_track
 
     while True:
-        if is_trading_hours():
+        # if is_trading_hours():
+        if verbosity >=2:
+            print(f'update_symbols: sleeping for {CHECK_FREQUENCY} secs...')
+        await asyncio.sleep(CHECK_FREQUENCY)  # Sleep for 5 minutes
+        
+        # Check if the symbols to track have changed
+        new_stocks_to_track = get_stocks_to_track()        
+        if sorted(current_stocks_to_track) != sorted(new_stocks_to_track):
             if verbosity >=2:
-                print(f'update_symbols: sleeping for {CHECK_FREQUENCY} secs...')
-            await asyncio.sleep(CHECK_FREQUENCY)  # Sleep for 5 minutes
-            new_stocks_to_track = get_stocks_to_track()
-            if sorted(current_stocks_to_track) != sorted(new_stocks_to_track):
-                if verbosity >=2:
-                    print(f'update_symbols: Updating stocks to track...now tracking {new_stocks_to_track}')
-                old_stocks = set(current_stocks_to_track)
-                update_sub(wss_client, new_stocks_to_track, old_stocks)
-                current_stocks_to_track = new_stocks_to_track
-            else:
-                if verbosity >=2:
-                    print('update_symbols: No changes to stocks to track')
+                print(f'update_symbols: Updating stocks to track...now tracking {new_stocks_to_track}')
+            old_stocks = set(current_stocks_to_track)
+            update_sub(wss_client, new_stocks_to_track, old_stocks)
+            current_stocks_to_track = new_stocks_to_track
         else:
             if verbosity >=2:
-                print('update_symbols: Currently outside of trading hours. Exiting...')
-            break
+                print('update_symbols: No changes to stocks to track')
 
 async def update_crypto_symbols(wss_client, symbols_to_track=(), verbosity=1):
     current_crypto_to_track = symbols_to_track
@@ -216,11 +222,39 @@ async def update_crypto_symbols(wss_client, symbols_to_track=(), verbosity=1):
             if verbosity >=2:
                 print('update_crypto_symbols: No changes to crypto to track')
 
+async def start_stop_stock_stream(wss_client: DataStream, verbosity: int = 1, exit_off_hours: bool = True):
+    # sleep for 5 seconds to allow the client to start
+    await asyncio.sleep(5)
+
+    while True:
+        if is_trading_hours():
+            # If the client has stopped, start the client
+            if not wss_client._running:
+                if verbosity >= 2:
+                    print("Starting the stock stream...")
+                wss_client.start()            
+        else:
+            # If the client is running, stop the client
+            if wss_client._running:
+                if verbosity >= 2:
+                    str_tmp = "temporarily" if not exit_off_hours else ""
+                    print(f"Trading hours have ended. Closing stock stream connection {str_tmp}...")
+                await wss_client.stop_ws()
+                if exit_off_hours:
+                    break
+            else:
+                if verbosity >= 4:
+                    print("Currently outside of trading hours. Stock stream connection is closed.")
+        
+        await asyncio.sleep(60)  # Check every minute
+
 async def sub_bars(verbosity=0):
     """
     start 3 tasks:
-    - run_wss_client: starts a client that is connected to alpaca's websocket
+    - run_wss_client: starts a stock  tracking client that is connected to alpaca's websocket
     - update_symbols: updates the symbols to track at a specified interval.
+    - run_wss_client: starts a crypto tracking client that is connected to alpaca's websocket
+    - update_crypto_symbols: updates the crypto symbols to track at a specified interval.
     - close_after_trading_hours: closes the connection after trading hours.
     """
     stock_symbols = get_stocks_to_track()
@@ -237,7 +271,7 @@ async def sub_bars(verbosity=0):
             # thread for tracking stock data
             asyncio.to_thread(run_wss_client, wss_stock_client, verbosity=verbosity),
             update_symbols(wss_stock_client, symbols_to_track=stock_symbols, verbosity=verbosity),
-            close_after_trading_hours(wss_stock_client, verbosity=verbosity),
+            start_stop_stock_stream(wss_stock_client, verbosity=verbosity, exit_off_hours=False),
 
             # thread for tracking crypto data
             asyncio.to_thread(run_wss_client, wss_crypto_client, verbosity=verbosity),
