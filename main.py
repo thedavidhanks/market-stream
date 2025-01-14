@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 
 from helpers.database import connect_to_db, add_bar_row_to_db, add_trade_to_stock_trades, get_stocks_to_track, update_bar_row_in_db, get_crypto_to_track
 from helpers.stringHelper import bar_to_oneline_string
+from helpers.datastream_helper import test_socket, get_wss_url
 
 load_dotenv()
 
@@ -126,21 +127,27 @@ async def live_stock_stream(symbols, verbosity=0, simulate=False, subscribe_trad
         close_after_trading_hours(wss_client)
     )
 
-def run_wss_client(wss_client, verbosity=1):
+def run_wss_client(wss_client: DataStream, verbosity=1, client_type="unknown"):
+    if wss_client is None:
+        if verbosity >= 1:
+            print("Error: WebSocket client is None. Exiting run_wss_client.")
+        return
     try:
         wss_client.run()
     except ValueError as e:
         if "connection limit exceeded" in str(e):
             if verbosity >= 1:
-                print(f"ValueError (connection limit) running wss_client: {e}")
-            os._exit(1)
+                print(f"running wss_client: ValueError (connection limit) {e}")
         else:
             if verbosity >= 1:
                 print(f"ValueError running wss_client: {e}")
-            raise
+        return
     except Exception as e:
-        print(f"Error running wss_client: {e}")
-        os._exit(1)
+        if verbosity >= 1:
+            print(f"Error running wss_client: {e}")
+    else:
+        if verbosity >= 1:
+            print(f"{client_type} stream ended.")
 
 # Get the OHLCV 1 min bars for the given symbol
 async def bar_data_handler(data):
@@ -157,9 +164,18 @@ def start_sub(stocks_to_track=None, asset='stock', verbosity=0):
 
     Alpaca provides sandbox urls for testing, but does not explain how to connect to them.
     """
-    stock_url = "wss://stream.data.sandbox.alpaca.markets/v2/iex" if TESTING else None
-    crypto_url = "wss://stream.data.sandbox.alpaca.markets/v1beta3/crypto/us" if TESTING else None
-    symbols = get_stocks_to_track() if stocks_to_track is None else stocks_to_track
+    stock_url = get_wss_url('stock', testing=TESTING)
+    crypto_url = get_wss_url('crypto', testing=TESTING)
+    
+    # if stocks_to_track is None, get the stocks to track from the database.  
+    # if asset is crypto, then use get_crypto_to_track() otherwise use get_stocks_to_track()
+    if stocks_to_track is None:
+        if asset == 'crypto':
+            symbols = get_crypto_to_track()
+        else:
+            symbols = get_stocks_to_track()
+    else:
+        symbols = stocks_to_track
     
     try:
         if asset == 'stock':
@@ -168,7 +184,9 @@ def start_sub(stocks_to_track=None, asset='stock', verbosity=0):
             wss_client = CryptoDataStream(API_KEY, API_SECRET, url_override=crypto_url)
     except Exception as e:
         if verbosity >=1: print(f"Failed to connect to the data stream: {e}")
-        exit(1)
+        return None
+    else:
+        if verbosity >=2: print(f"Connected to the {asset} data stream")
     
     wss_client.subscribe_bars(bar_data_handler, *symbols)
     wss_client.subscribe_updated_bars(updatebar_data_handler, *symbols)
@@ -223,6 +241,10 @@ async def update_crypto_symbols(wss_client, symbols_to_track=(), verbosity=1):
                 print('update_crypto_symbols: No changes to crypto to track')
 
 async def start_stop_stock_stream(wss_client: DataStream, verbosity: int = 1, exit_off_hours: bool = True):
+    if wss_client is None:
+        if verbosity >= 1:
+            print("Error: WebSocket client is None. Exiting start_stop_stock_stream.")
+        return
     # sleep for 5 seconds to allow the client to start
     await asyncio.sleep(5)
 
@@ -232,7 +254,7 @@ async def start_stop_stock_stream(wss_client: DataStream, verbosity: int = 1, ex
             if not wss_client._running:
                 if verbosity >= 2:
                     print("Starting the stock stream...")
-                wss_client.start()            
+                wss_client.start()
         else:
             # If the client is running, stop the client
             if wss_client._running:
@@ -248,17 +270,27 @@ async def start_stop_stock_stream(wss_client: DataStream, verbosity: int = 1, ex
         
         await asyncio.sleep(60)  # Check every minute
 
-async def sub_bars(verbosity=0):
+async def sub_bars(verbosity=1):
     """
-    start 3 tasks:
-    - run_wss_client: starts a stock  tracking client that is connected to alpaca's websocket
+    start 4 tasks:
+    - start_stop_stock_stream: starts and stops a stock tracking client that is connected to alpaca's websocket
     - update_symbols: updates the symbols to track at a specified interval.
     - run_wss_client: starts a crypto tracking client that is connected to alpaca's websocket
     - update_crypto_symbols: updates the crypto symbols to track at a specified interval.
-    - close_after_trading_hours: closes the connection after trading hours.
     """
     stock_symbols = get_stocks_to_track()
     crypto_symbols = get_crypto_to_track()
+
+    # A check for the connection limit exceeded error
+    crypto_stream_url = get_wss_url('crypto', testing=TESTING)
+    stock_stream_url = get_wss_url('stock', testing=TESTING)
+    connection_available = await test_socket(url=crypto_stream_url)
+    if connection_available:
+        connection_available = await test_socket(url=stock_stream_url)
+    if not connection_available:
+        if verbosity >= 1:
+            print("No connection available. Exiting sub_bars.")
+        return
     
     # A stock data stream client
     wss_stock_client = start_sub(stocks_to_track=stock_symbols, asset='stock', verbosity=verbosity)
@@ -269,28 +301,24 @@ async def sub_bars(verbosity=0):
     try:
         await asyncio.gather(
             # thread for tracking stock data
-            asyncio.to_thread(run_wss_client, wss_stock_client, verbosity=verbosity),
             update_symbols(wss_stock_client, symbols_to_track=stock_symbols, verbosity=verbosity),
             start_stop_stock_stream(wss_stock_client, verbosity=verbosity, exit_off_hours=False),
 
             # thread for tracking crypto data
-            asyncio.to_thread(run_wss_client, wss_crypto_client, verbosity=verbosity),
+            asyncio.to_thread(run_wss_client, wss_crypto_client, verbosity=verbosity, client_type="crypto"),
             update_crypto_symbols(wss_crypto_client, symbols_to_track=crypto_symbols, verbosity=verbosity)
         )
     except asyncio.CancelledError:
-        print("Subscription interrupted")
-    except ValueError as e:
-        if "connection limit exceeded" in str(e):
-            print(f"Error in sub_bars: {e}")
-            os._exit(1)
-        else:
-            raise
+        if verbosity >= 1:
+            print("Subscription interrupted")
     except Exception as e:
-        print(f"Error in sub_bars: {e}")
-        os._exit(1)
+        if verbosity >= 1:
+            print(f"Unknown Error in sub_bars: {e}")
     finally:
-        wss_stock_client.stop()
-        wss_crypto_client.stop()
+        if wss_stock_client is not None:
+            wss_stock_client.stop()
+        if wss_crypto_client is not None:
+            wss_crypto_client.stop()
 
 def main():
     # Create an ArgumentParser object
@@ -306,6 +334,8 @@ def main():
         asyncio.run(sub_bars(verbosity=args.verbosity))
     except KeyboardInterrupt:
         print("Program interrupted")
+    except Exception as e:
+        print(f"Error in main: {e}")
 
 if __name__== "__main__":
     main()
