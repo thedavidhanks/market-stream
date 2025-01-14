@@ -254,7 +254,7 @@ async def start_stop_stock_stream(wss_client: DataStream, verbosity: int = 1, ex
             if not wss_client._running:
                 if verbosity >= 2:
                     print("Starting the stock stream...")
-                wss_client.start()
+                asyncio.create_task(asyncio.to_thread(run_wss_client, wss_client, verbosity=verbosity, client_type="stock"))
         else:
             # If the client is running, stop the client
             if wss_client._running:
