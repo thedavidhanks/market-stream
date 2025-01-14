@@ -1,6 +1,9 @@
+import asyncio
 import os
+import tracemalloc
 from dotenv import load_dotenv
 from helpers.database import connect_to_db, print_stock_bars_5min, get_crypto_to_track
+from helpers.datastream_helper import start_stream
 
 load_dotenv()
 
@@ -15,13 +18,43 @@ DB_NAME = os.getenv("MS_DB_NAME")
 DB_PORT = os.getenv("MS_DB_PORT")
 
 
+async def test_data_handler(data):
+    print(f'TEST DATA: {data}')
+
+def run_wss_client(wss_client, verbosity=2):
+    try:
+        if wss_client is None:
+            raise ValueError("WebSocket client is None.")
+        wss_client.run()
+    except ValueError as e:
+        if "connection limit exceeded" in str(e):
+            if verbosity >= 1:
+                print(f"Error: {e}")
+            exit(1)
+        else:
+            if verbosity >= 1:
+                print(f"ValueError running wss_client: {e}")
+            exit(1)
+    except Exception as e:
+        if verbosity >= 1:
+            print(f"run_wss_client Unexpected error: {e}")
+        exit(1)
+
+async def main():
+    wss_client = start_stream(test_data_handler, test_data_handler, asset='crypto', verbosity=2)
+    if wss_client is None:
+        print("Failed to start WebSocket client.")
+        return
+    
+    # run_wss_client(wss_client)
+    await asyncio.gather(
+        # thread for tracking crypto data
+        asyncio.to_thread(run_wss_client, wss_client)
+    )
 
 if __name__ == '__main__':
-
-    # connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME, DB_PORT)
-    # print_stock_bars_5min(connection)
-    # connection.close()
-
-    sym = get_crypto_to_track()
-    print(sym)
-    
+    tracemalloc.start()
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        print(f"Unexpected error in main: {e}")
