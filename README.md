@@ -30,14 +30,36 @@ If you're not running VS code, this project runs Python 3.12.  Python module ver
 7. Add a .env file to the root directory with the following constants:
 
 ```
-ALPACA_API_KEY = "Your API"
-ALPACA_API_SECRET = "YOUR_API_SECRET"
-DB_PWD = "DATABASE_PASSWORD"
-DB_URL="DATABASE URL"
-DB_USER="DATABASE USER"
-DB_NAME="DATABASE NAME"
+MS_ALPACA_API_KEY = "Your API"
+MS_ALPACA_API_SECRET = "YOUR_API_SECRET"
+MS_DB_PWD = "DATABASE_PASSWORD"
+MS_DB_URL="DATABASE URL"
+MS_DB_PORT=5432
+MS_DB_USER="DATABASE USER"
+MS_DB_NAME="DATABASE NAME"
 ```
 
+# Run
+
+Run the program using the following command:   
+
+`$ python main.py`
+
+## Help info
+To view other arguments a --help argument is available.
+
+```
+$ python main.py --help
+
+usage: main.py [-h] [-v VERBOSITY]
+
+Capture the market data in a database.
+
+options:
+  -h, --help            show this help message and exit
+  -v VERBOSITY, --verbosity VERBOSITY
+                        Set output verbosity level. 0 None, 1 Errors, 2 Info, 3 Debug
+```
 # License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.

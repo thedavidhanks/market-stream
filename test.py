@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tracemalloc
+from psycopg import sql, connect
 from dotenv import load_dotenv
 from helpers.database import connect_to_db, print_stock_bars_5min, get_crypto_to_track
 from helpers.datastream_helper import start_stream
@@ -51,10 +52,23 @@ async def main():
         # thread for tracking crypto data
         asyncio.to_thread(run_wss_client, wss_client)
     )
+    
+def a_connect_test():
+    db_connection = connect(
+        host=DB_URL,
+        port=DB_PORT,              # Port PostgreSQL is listening on
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PWD
+    )
+    return db_connection
 
-if __name__ == '__main__':
+def error_trace():
     tracemalloc.start()
     try:
         asyncio.run(main())
     except Exception as e:
         print(f"Unexpected error in main: {e}")
+
+if __name__ == '__main__':
+    a_connect_test()
