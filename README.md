@@ -16,16 +16,16 @@ If you're not running VS code, this project runs Python 3.12.  Python module ver
 3. Install the TimescaleDB extension
 
 4. Create the tables, views, and refresh policy
-   - Create the database
+   - Create the database and enable the timescaledb extension
    ```
    CREATE DATABASE mlmarketdata;
    \c mlmarketdata
    CREATE EXTENSION IF NOT EXISTS timescaledb;
    ```
    - in psql run the following files:  
-      -  ./data/db_create.sql
-      -  ./data/db_create2.sql
-      -  ./data/db_create3.sql
+      -  `\i ./data/db_create.sql`
+      -  `\i ./data/db_create2.sql`
+      -  `\i ./data/db_create3.sql`
 
 7. Add a .env file to the root directory with the following constants:
 

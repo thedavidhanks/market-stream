@@ -16,8 +16,8 @@ from helpers.datastream_helper import test_socket, get_wss_url
 load_dotenv()
 
 # Alpaca API key ID and secret
-API_KEY = os.getenv("MS_ALPACA_API_KEY")
-API_SECRET = os.getenv("MS_ALPACA_API_SECRET")
+API_KEY = os.getenv("MS_ALPACA_API_KEY", default="")
+API_SECRET = os.getenv("MS_ALPACA_API_SECRET", default="")
 
 CHECK_FREQUENCY = 300  # 5 minutes
 TESTING = False
@@ -182,10 +182,13 @@ def start_sub(stocks_to_track=None, asset='stock', verbosity=0):
             wss_client = StockDataStream(API_KEY, API_SECRET, url_override=stock_url)
         elif asset == 'crypto':
             wss_client = CryptoDataStream(API_KEY, API_SECRET, url_override=crypto_url)
+        else:
+            if verbosity >=1: print(f"Unknown asset type: {asset}")
+            return None
     except Exception as e:
         if verbosity >=1: print(f"Failed to connect to the data stream: {e}")
         return None
-    else:
+    finally:
         if verbosity >=2: print(f"Connected to the {asset} data stream")
     
     wss_client.subscribe_bars(bar_data_handler, *symbols)
