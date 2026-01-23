@@ -1,3 +1,4 @@
 .env
 helpers/__pycache__/*.pyc
+resources/__pycache__/*.pyc
 __pycache__/*.pyc

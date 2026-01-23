@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from helpers.database import connect_to_db, add_bar_row_to_db, add_trade_to_stock_trades, get_stocks_to_track, update_bar_row_in_db, get_crypto_to_track
 from helpers.stringHelper import bar_to_oneline_string
 from helpers.datastream_helper import test_socket, get_wss_url
+from helpers.logger import logger, set_file_log_level
 
 load_dotenv()
 
@@ -44,16 +45,16 @@ def is_trading_hours():
         return True
     return  False
 
-async def close_after_trading_hours(wss_client, verbosity=0):
+async def close_after_trading_hours(wss_client):
     # sleep for 5 seconds to allow the client to start
     await asyncio.sleep(5)
 
     while True:
         if is_trading_hours():
             await asyncio.sleep(60)  # Check every minute
+
         else:
-            if verbosity >= 2:
-                print("Trading hours have ended. Closing connection...")
+            logger.info("Trading hours have ended. Closing connection...")
             await wss_client.stop_ws()
             break
 
@@ -87,33 +88,27 @@ def add_trade_row_to_db(data):
 
     db_connection.close()
 
-async def live_stock_stream(symbols, verbosity=0, simulate=False, subscribe_trades=False):
+async def live_stock_stream(symbols, simulate=False, subscribe_trades=False):
     """
     Subscribe to the live stock data stream for the given symbols.
 
     INPUTS:
     symbols: tuple - The symbols to subscribe to.
-    verbosity: int - The level of verbosity for the function. 0 is no output, 1 is errors and warnings, 2 is informational, 3+ is debug.
     """
         
     async def trade_data_handler(data):
-        if verbosity >=1: 
-            print(f'TRADE: {data}')   
+        logger.info(f'TRADE: {data}')
         add_trade_row_to_db(data)     
 
     if not is_trading_hours():
-        if verbosity >= 2:
-            print('live_stock_stream: Currently outside of trading hours.')
+        logger.info('live_stock_stream: Currently outside of trading hours.')
         if simulate:
-            if verbosity >= 2:
-                print('Simulating data...')
+            logger.info('Simulating data...')
             simulate_subscribe_bars(bar_data_handler, *symbols)
         else:
-            if verbosity >= 2:
-                print('Guess we\'ll wait...')
+            logger.info('Guess we\'ll wait...')
     # Subscribe to the live stock data stream
-    if verbosity >= 2:
-        print('Subscribing to live data...')
+    logger.info('Subscribing to live data...')
     wss_client = StockDataStream(API_KEY, API_SECRET)
     wss_client.subscribe_bars(bar_data_handler, *symbols)
     wss_client.subscribe_updated_bars(updatebar_data_handler, *symbols)
@@ -127,38 +122,33 @@ async def live_stock_stream(symbols, verbosity=0, simulate=False, subscribe_trad
         close_after_trading_hours(wss_client)
     )
 
-def run_wss_client(wss_client: DataStream, verbosity=1, client_type="unknown"):
+def run_wss_client(wss_client: DataStream, client_type="unknown"):
     if wss_client is None:
-        if verbosity >= 1:
-            print("Error: WebSocket client is None. Exiting run_wss_client.")
+        logger.error("Error: WebSocket client is None. Exiting run_wss_client.")
         return
     try:
         wss_client.run()
     except ValueError as e:
         if "connection limit exceeded" in str(e):
-            if verbosity >= 1:
-                print(f"running wss_client: ValueError (connection limit) {e}")
+            logger.error(f"run_wss_client: ValueError (connection limit) {e}")
         else:
-            if verbosity >= 1:
-                print(f"ValueError running wss_client: {e}")
+            logger.error(f"ValueError run_wss_client: {e}")
         return
     except Exception as e:
-        if verbosity >= 1:
-            print(f"Error running wss_client: {e}")
-    else:
-        if verbosity >= 1:
-            print(f"{client_type} stream ended.")
+        logger.error(f"Error run_wss_client: {e}")
+    finally:
+        logger.info(f"{client_type} stream ended.")
 
 # Get the OHLCV 1 min bars for the given symbol
 async def bar_data_handler(data):
-    print(f'BAR_1MIN: {bar_to_oneline_string(data)}')
+    logger.info(f'BAR_1MIN: {bar_to_oneline_string(data)}')
     add_bar_row_to_db(data)
 
 async def updatebar_data_handler(data):
-    print(f'UPDATE_BAR: {bar_to_oneline_string(data)}')
+    logger.info(f'UPDATE_BAR: {bar_to_oneline_string(data)}')
     update_bar_row_in_db(data)
 
-def start_sub(stocks_to_track=None, asset='stock', verbosity=0):
+def start_sub(stocks_to_track=None, asset='stock'):
     """
     Start the WebSocket client and subscribe to the bars for the symbols to track.
 
@@ -183,14 +173,14 @@ def start_sub(stocks_to_track=None, asset='stock', verbosity=0):
         elif asset == 'crypto':
             wss_client = CryptoDataStream(API_KEY, API_SECRET, url_override=crypto_url)
         else:
-            if verbosity >=1: print(f"Unknown asset type: {asset}")
+            logger.error(f"Unknown asset type: {asset}")
             return None
     except Exception as e:
-        if verbosity >=1: print(f"Failed to connect to the data stream: {e}")
+        logger.error(f"Failed to connect to the data stream: {e}")
         return None
     finally:
-        if verbosity >=2: print(f"Connected to the {asset} data stream")
-    
+        logger.info(f"Connected to the {asset} data stream")
+
     wss_client.subscribe_bars(bar_data_handler, *symbols)
     wss_client.subscribe_updated_bars(updatebar_data_handler, *symbols)
     return wss_client
@@ -204,49 +194,42 @@ def update_sub(client, new_symbols, old_symbols):
     client.unsubscribe_updated_bars(*old_symbols)
     client.subscribe_updated_bars(updatebar_data_handler, *new_symbols)
 
-async def update_symbols(wss_client, symbols_to_track=(), verbosity=1):
+async def update_symbols(wss_client, symbols_to_track=()):
     current_stocks_to_track = symbols_to_track
 
     while True:
         # if is_trading_hours():
-        if verbosity >=2:
-            print(f'update_symbols: sleeping for {CHECK_FREQUENCY} secs...')
+        logger.info(f'update_symbols: sleeping for {CHECK_FREQUENCY} secs...')
         await asyncio.sleep(CHECK_FREQUENCY)  # Sleep for 5 minutes
         
         # Check if the symbols to track have changed
         new_stocks_to_track = get_stocks_to_track()        
         if sorted(current_stocks_to_track) != sorted(new_stocks_to_track):
-            if verbosity >=2:
-                print(f'update_symbols: Updating stocks to track...now tracking {new_stocks_to_track}')
+            logger.info(f'update_symbols: Updating stocks to track...now tracking {new_stocks_to_track}')
             old_stocks = set(current_stocks_to_track)
             update_sub(wss_client, new_stocks_to_track, old_stocks)
             current_stocks_to_track = new_stocks_to_track
         else:
-            if verbosity >=2:
-                print('update_symbols: No changes to stocks to track')
+            logger.info('update_symbols: No changes to stocks to track')
 
-async def update_crypto_symbols(wss_client, symbols_to_track=(), verbosity=1):
+async def update_crypto_symbols(wss_client, symbols_to_track=()):
     current_crypto_to_track = symbols_to_track
 
     while True:
-        if verbosity >=2:
-            print(f'update_crypto_symbols: sleeping for {CHECK_FREQUENCY} secs...')
+        logger.info(f'update_crypto_symbols: sleeping for {CHECK_FREQUENCY} secs...')
         await asyncio.sleep(CHECK_FREQUENCY)  # Sleep for 5 minutes
         new_crypto_to_track = get_crypto_to_track()
         if sorted(current_crypto_to_track) != sorted(new_crypto_to_track):
-            if verbosity >=2:
-                print(f'update_crypto_symbols: Updating crypto to track...now tracking {new_crypto_to_track}')
+            logger.info(f'update_crypto_symbols: Updating crypto to track...now tracking {new_crypto_to_track}')
             old_crypto = set(current_crypto_to_track)
             update_sub(wss_client, new_crypto_to_track, old_crypto)
             current_crypto_to_track = new_crypto_to_track
         else:
-            if verbosity >=2:
-                print('update_crypto_symbols: No changes to crypto to track')
+            logger.info('update_crypto_symbols: No changes to crypto to track')
 
-async def start_stop_stock_stream(wss_client: DataStream, verbosity: int = 1, exit_off_hours: bool = True):
+async def start_stop_stock_stream(wss_client: DataStream, exit_off_hours: bool = True):
     if wss_client is None:
-        if verbosity >= 1:
-            print("Error: WebSocket client is None. Exiting start_stop_stock_stream.")
+        logger.error("Error: WebSocket client is None. Exiting start_stop_stock_stream.")
         return
     # sleep for 5 seconds to allow the client to start
     await asyncio.sleep(5)
@@ -255,25 +238,22 @@ async def start_stop_stock_stream(wss_client: DataStream, verbosity: int = 1, ex
         if is_trading_hours():
             # If the client has stopped, start the client
             if not wss_client._running:
-                if verbosity >= 2:
-                    print("Starting the stock stream...")
-                asyncio.create_task(asyncio.to_thread(run_wss_client, wss_client, verbosity=verbosity, client_type="stock"))
+                logger.info("Starting the stock stream...")
+                asyncio.create_task(asyncio.to_thread(run_wss_client, wss_client, client_type="stock"))
         else:
             # If the client is running, stop the client
             if wss_client._running:
-                if verbosity >= 2:
-                    str_tmp = "temporarily" if not exit_off_hours else ""
-                    print(f"Trading hours have ended. Closing stock stream connection {str_tmp}...")
+                str_tmp = "temporarily" if not exit_off_hours else ""
+                logger.info(f"Trading hours have ended. Closing stock stream connection {str_tmp}...")
                 await wss_client.stop_ws()
                 if exit_off_hours:
                     break
             else:
-                if verbosity >= 4:
-                    print("Currently outside of trading hours. Stock stream connection is closed.")
-        
+                logger.info("Currently outside of trading hours. Stock stream connection is closed.")
+
         await asyncio.sleep(60)  # Check every minute
 
-async def sub_bars(verbosity=1):
+async def sub_bars():
     """
     start 4 tasks:
     - start_stop_stock_stream: starts and stops a stock tracking client that is connected to alpaca's websocket
@@ -291,36 +271,35 @@ async def sub_bars(verbosity=1):
     if connection_available:
         connection_available = await test_socket(url=stock_stream_url)
     if not connection_available:
-        if verbosity >= 1:
-            print("No connection available. Exiting sub_bars.")
+        logger.error("No connection available. Exiting sub_bars.")
         return
     
     # A stock data stream client
-    wss_stock_client = start_sub(stocks_to_track=stock_symbols, asset='stock', verbosity=verbosity)
+    wss_stock_client = start_sub(stocks_to_track=stock_symbols, asset='stock')
 
     # A crypto data stream client
-    wss_crypto_client = start_sub(stocks_to_track=crypto_symbols, asset='crypto', verbosity=verbosity)
+    wss_crypto_client = start_sub(stocks_to_track=crypto_symbols, asset='crypto')
 
     try:
         await asyncio.gather(
             # thread for tracking stock data
-            update_symbols(wss_stock_client, symbols_to_track=stock_symbols, verbosity=verbosity),
-            start_stop_stock_stream(wss_stock_client, verbosity=verbosity, exit_off_hours=False),
+            update_symbols(wss_stock_client, symbols_to_track=stock_symbols),
+            start_stop_stock_stream(wss_stock_client, exit_off_hours=False),
 
             # thread for tracking crypto data
-            asyncio.to_thread(run_wss_client, wss_crypto_client, verbosity=verbosity, client_type="crypto"),
-            update_crypto_symbols(wss_crypto_client, symbols_to_track=crypto_symbols, verbosity=verbosity)
+            asyncio.to_thread(run_wss_client, wss_crypto_client, client_type="crypto"),
+            update_crypto_symbols(wss_crypto_client, symbols_to_track=crypto_symbols)
         )
     except asyncio.CancelledError:
-        if verbosity >= 1:
-            print("Subscription interrupted")
+        logger.error("Subscription interrupted")
     except Exception as e:
-        if verbosity >= 1:
-            print(f"Unknown Error in sub_bars: {e}")
+        logger.error(f"Unknown Error in sub_bars: {e}")
     finally:
         if wss_stock_client is not None:
+            logger.info("Stopping stock WebSocket client...")
             wss_stock_client.stop()
         if wss_crypto_client is not None:
+            logger.info("Stopping crypto WebSocket client...")
             wss_crypto_client.stop()
 
 def main():
@@ -328,17 +307,21 @@ def main():
     parser = argparse.ArgumentParser(description='Capture the market data in a database.')
     
     # Add arguments
-    parser.add_argument('-v', '--verbosity', help='Set output verbosity level. 0 None, 1 Errors, 2 Info, 3 Debug', type=int, default=0)
+    parser.add_argument('-v', '--verbosity', help='Set console output verbosity level. 0 None, 1 Errors, 2 Info, 3 Debug', type=int, default=0)
+    parser.add_argument('--log-verbosity', help='Set log file verbosity level. Options are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL". Default is "INFO".', type=str, default="INFO")
 
     # Parse the arguments
     args = parser.parse_args()
 
+    # Set the logger level based on verbosity
+    set_file_log_level(level_str=args.log_verbosity)
+
     try:
-        asyncio.run(sub_bars(verbosity=args.verbosity))
+        asyncio.run(sub_bars())
     except KeyboardInterrupt:
-        print("Program interrupted")
+        logger.info("Program interrupted")
     except Exception as e:
-        print(f"Error in main: {e}")
+        logger.error(f"Error in main: {e}")
 
 if __name__== "__main__":
     main()
