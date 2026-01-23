@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from alpaca.data.models.bars import Bar
 
 from helpers.barConversion import bars_string_to_BarClass
+from helpers.logger import logger
 
 load_dotenv()
 
@@ -183,7 +184,7 @@ def get_crypto_to_track():
 
     return tuple(active_symbols_set)
 
-def add_bar_row_to_db(data, verbosity=0):
+def add_bar_row_to_db(data):
     """
     Connect to the database.
     Add the data_dict keys timestamp, symbol, open, high, low, close, volume, trade_count, vwap to the table, stock_bars
@@ -192,7 +193,6 @@ def add_bar_row_to_db(data, verbosity=0):
     INPUTS:
         data: string - The data string received from the Alpaca API
         Example data string: "symbol='AAPL' timestamp=datetime.datetime(2024, 9, 23, 19, 59, tzinfo=datetime.timezone.utc) open=226.375 high=226.63 low=226.3 close=226.49 volume=15052.0 trade_count=208.0 vwap=226.463702"
-        verbosity: int - The level of verbosity for the function. 0 is no output, 1 is errors and warnings, 2 is informational
     """
     # Convert the string to a dictionary
     if type(data) == str:
@@ -200,10 +200,8 @@ def add_bar_row_to_db(data, verbosity=0):
     elif type(data) == Bar:
         data_bar = data
     else:
-        if verbosity >= 1:
-            print(f'Data is not a string or Bar object as expected.  Data type: {type(data)}')
-    if verbosity >= 2:
-        print(data_bar)
+        logger.warning(f'Data is not a string or Bar object as expected.  Data type: {type(data)}')
+    logger.debug(data_bar)
 
     # Connect to the database
     db_connection = connect_to_db(DB_USER, DB_PWD, DB_URL, DB_NAME, port=DB_PORT)

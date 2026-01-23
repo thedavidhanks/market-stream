@@ -8,6 +8,7 @@ from alpaca.common.enums import BaseURL
 from alpaca.data.enums import DataFeed, CryptoFeed
 
 from helpers.database import get_stocks_to_track, get_crypto_to_track
+from helpers.logger import logger
 
 load_dotenv()
 
@@ -41,7 +42,7 @@ def get_wss_url(asset='stock', testing: bool = TESTING) -> str:
     else:
         return None
     
-def start_stream(bar_data_handler, updatebar_data_handler, stocks_to_track = None, asset='stock', verbosity=0) -> DataStream:
+def start_stream(bar_data_handler, updatebar_data_handler, stocks_to_track = None, asset='stock') -> DataStream:
     """
     Start the WebSocket client and subscribe to the bars for the symbols to track.
     """
@@ -64,17 +65,17 @@ def start_stream(bar_data_handler, updatebar_data_handler, stocks_to_track = Non
         elif asset == 'crypto':
             wss_client = CryptoDataStream(API_KEY, API_SECRET, url_override=crypto_url)
     except Exception as e:
-        if verbosity >=1: print(f"Failed to connect to the data stream: {e}")
+        logger.warning(f"Failed to connect to the data stream: {e}")
         return None
     else:
-        if verbosity >=2: print(f"Connected to the {asset} data stream")
-    
+        logger.info(f"Connected to the {asset} data stream")
+
     wss_client.subscribe_bars(bar_data_handler, *symbols)
     wss_client.subscribe_updated_bars(updatebar_data_handler, *symbols)
     
     return wss_client
 
-async def test_socket(url = "wss://stream.data.sandbox.alpaca.markets/v1beta3/crypto/us", verbosity=1) -> bool:
+async def test_socket(url = "wss://stream.data.sandbox.alpaca.markets/v1beta3/crypto/us") -> bool:
     """
     Test the connection to the WebSocket client.
     
@@ -85,19 +86,17 @@ async def test_socket(url = "wss://stream.data.sandbox.alpaca.markets/v1beta3/cr
     async with websockets.connect(url) as ws:
         await ws.send(json.dumps({'action': 'auth', 'key': API_KEY, 'secret': API_SECRET}))
         response = await ws.recv()
-        if verbosity >= 2:
-            print(f"Response: {response}")
+        logger.debug(f"Response: {response}")
         # if the response is successful, then listen to the stream
         if json.loads(response)[0]["T"] == 'success':
             await ws.send(json.dumps({'action': 'subscribe', 'bars': ["XTZ/USD"] }))
             response = await ws.recv()
-            if verbosity >= 2:
-                print(f"Response: {response}")
+            logger.debug(f"Response: {response}")
             response_dict = json.loads(response)[0]
             if response_dict["T"] == 'success':
                 return True
             else:
-                if verbosity >= 1: print(f"Failed to subscribe to the stream: {response_dict["msg"]}")
+                logger.warning(f"Failed to subscribe to the stream: {response_dict['msg']}")
                 return False
         else:
             return False
@@ -106,6 +105,6 @@ async def test_socket(url = "wss://stream.data.sandbox.alpaca.markets/v1beta3/cr
 
 if __name__== "__main__":
     async def test_data_handler(data):
-        print(f'TEST DATA: {data}')
-    
-    wss_client = start_stream(test_data_handler, test_data_handler, asset='crypto', verbosity=2)
+        logger.info(f'TEST DATA: {data}')
+
+    wss_client = start_stream(test_data_handler, test_data_handler, asset='crypto')

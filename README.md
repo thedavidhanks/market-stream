@@ -51,14 +51,16 @@ To view other arguments a --help argument is available.
 ```
 $ python main.py --help
 
-usage: main.py [-h] [-v VERBOSITY]
+usage: main.py [-h] [-v VERBOSITY] [--log-verbosity LOG_VERBOSITY]
 
 Capture the market data in a database.
 
 options:
   -h, --help            show this help message and exit
   -v VERBOSITY, --verbosity VERBOSITY
-                        Set output verbosity level. 0 None, 1 Errors, 2 Info, 3 Debug
+                        Set console output verbosity level. 0 None, 1 Errors, 2 Info, 3 Debug
+  --log-verbosity LOG_VERBOSITY
+                        Set log file verbosity level. Options are "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL". Default is "INFO".
 ```
 # License
 
