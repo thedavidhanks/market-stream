@@ -20,7 +20,11 @@ load_dotenv()
 API_KEY = os.getenv("MS_ALPACA_API_KEY", default="")
 API_SECRET = os.getenv("MS_ALPACA_API_SECRET", default="")
 
+# https://docs.alpaca.markets/docs/streaming-market-data
+STOCK_TESTING_URL = "wss://stream.data.alpaca.markets/v2/test"
+# STOCK_SANDBOX_URL = "wss://stream.data.sandbox.alpaca.markets/v2/iex"
 CHECK_FREQUENCY = 300  # 5 minutes
+
 TESTING = False
 
 # Alpaca supports extended trading hours from 4:00 AM to 8:00 PM EST
@@ -107,9 +111,13 @@ async def live_stock_stream(symbols, simulate=False, subscribe_trades=False):
             simulate_subscribe_bars(bar_data_handler, *symbols)
         else:
             logger.info('Guess we\'ll wait...')
-    # Subscribe to the live stock data stream
-    logger.info('Subscribing to live data...')
-    wss_client = StockDataStream(API_KEY, API_SECRET)
+    # Subscribe stock data stream
+    if simulate:
+        logger.info('Subscribing to simulated data...')
+        wss_client = StockDataStream(API_KEY, API_SECRET, url_override=STOCK_TESTING_URL)
+    else:    
+        logger.info('Subscribing to live data...')
+        wss_client = StockDataStream(API_KEY, API_SECRET)
     wss_client.subscribe_bars(bar_data_handler, *symbols)
     wss_client.subscribe_updated_bars(updatebar_data_handler, *symbols)
     if subscribe_trades:
